@@ -149,6 +149,9 @@ class Python37Parser(Python36Parser):
 
     def customize_grammar_rules(self, tokens, customize):
         self.remove_rules("""
+          # We now requre an ELSE
+          conditional ::= expr jmp_false expr jf_cf expr COME_FROM
+
           async_forelse_stmt ::= SETUP_LOOP expr
                                  GET_AITER
                                  LOAD_CONST YIELD_FROM SETUP_EXCEPT GET_ANEXT LOAD_CONST
