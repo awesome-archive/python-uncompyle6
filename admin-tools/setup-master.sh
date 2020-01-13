@@ -1,5 +1,5 @@
 #!/bin/bash
-PYTHON_VERSION=3.6.8
+PYTHON_VERSION=3.7.5
 
 # FIXME put some of the below in a common routine
 function finish {
@@ -20,3 +20,4 @@ cd $fulldir/..
     (cd ../python-xdis && git checkout master && pyenv local $PYTHON_VERSION) && git pull && \
     git checkout master && pyenv local $PYTHON_VERSION && git pull
 cd $owd
+rm -v */.python-version || true

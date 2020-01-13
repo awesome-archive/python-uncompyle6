@@ -56,18 +56,20 @@
 
     $ . ./admin-tools/make-dist-older.sh
     $ git tag release-python-2.4-$VERSION
-
+	$ twine check dist/uncompyle6-$VERSION*
     $ . ./admin-tools/make-dist-newer.sh
-
-Goto https://github.com/rocky/python-uncompyle6/releases
+	$ twine check dist/uncompyle6-$VERSION*
 
 # Upload single package and look at Rst Formating
 
+	$ twine check dist/uncompyle6-${VERSION}*
     $ twine upload dist/uncompyle6-${VERSION}-py3.3.egg
 
 # Upload rest of versions
 
     $ twine upload dist/uncompyle6-${VERSION}*
+
+Goto https://github.com/rocky/python-uncompyle6/releases
 
 # Push tags:
 

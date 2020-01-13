@@ -61,6 +61,21 @@ def customize_for_version36(self, version):
             '%c(%p)',
             (0, 'expr'), (1, 100)),
 
+        # This comes from 3.7. Eventually we will rebase from 3.7
+        # and then this can go away
+        "conditional37": ( "%p if %c else %c",
+                           (1, 'expr', 27), 0, 3 ),
+
+        'store_annotation': (
+            '%[1]{pattr}: %c',
+            0
+            ),
+        'ann_assign_init_value':  (
+            '%|%c = %p\n',
+             (-1, 'store_annotation'), (0, 'expr', 200)),
+        'ann_assign_no_init':  (
+            '%|%c\n', (0, 'store_annotation')),
+
     })
 
     TABLE_R.update({
@@ -210,6 +225,7 @@ def customize_for_version36(self, version):
         # FIXME: decide if the below test be on kwargs == 'dict'
         if (call_function_ex.attr & 1 and
             (not isinstance(kwargs, Token) and kwargs != 'attribute')
+            and kwargs != "call_kw36"
             and not kwargs[0].kind.startswith('kvlist')):
             self.call36_dict(kwargs)
         else:
@@ -486,7 +502,10 @@ def customize_for_version36(self, version):
                 # bytecode, the escaping of the braces has been
                 # removed. So we need to put back the braces escaping in
                 # reconstructing the source.
-                assert expr[0] == 'LOAD_STR'
+                assert (
+                    expr[0] == "LOAD_STR" or
+                    expr[0] == "LOAD_CONST" and isinstance(expr[0].attr, unicode)
+                    )
                 value = value.replace("{", "{{").replace("}", "}}")
 
             # Remove leading quotes

@@ -96,8 +96,8 @@ class Python35Parser(Python34Parser):
                                else_suite COME_FROM_LOOP
 
 
-        inplace_op ::= INPLACE_MATRIX_MULTIPLY
-        binary_op  ::= BINARY_MATRIX_MULTIPLY
+        inplace_op       ::= INPLACE_MATRIX_MULTIPLY
+        binary_operator  ::= BINARY_MATRIX_MULTIPLY
 
         # Python 3.5+ does jump optimization
         # In <.3.5 the below is a JUMP_FORWARD to a JUMP_ABSOLUTE.
@@ -144,9 +144,15 @@ class Python35Parser(Python34Parser):
         super(Python35Parser, self).customize_grammar_rules(tokens, customize)
         for i, token in enumerate(tokens):
             opname = token.kind
+            if opname == 'LOAD_ASSERT':
+                if 'PyPy' in customize:
+                    rules_str = """
+                    stmt ::= JUMP_IF_NOT_DEBUG stmts COME_FROM
+                    """
+                    self.add_unique_doc_rules(rules_str, customize)
             # FIXME: I suspect this is wrong for 3.6 and 3.5, but
             # I haven't verified what the 3.7ish fix is
-            if opname == 'BUILD_MAP_UNPACK_WITH_CALL':
+            elif opname == 'BUILD_MAP_UNPACK_WITH_CALL':
                 if self.version < 3.7:
                     self.addRule("expr ::= unmapexpr", nop_func)
                     nargs = token.attr % 256
@@ -246,7 +252,9 @@ class Python35Parser(Python34Parser):
             # zero or not in creating a template rule.
             self.add_unique_rule(rule, token.kind, args_pos, customize)
         else:
-            super(Python35Parser, self).custom_classfunc_rule(opname, token, customize, *args)
+            super(Python35Parser, self).custom_classfunc_rule(opname, token, customize, *args
+            )
+
 
 class Python35ParserSingle(Python35Parser, PythonParserSingle):
     pass
@@ -257,7 +265,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 3.5:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

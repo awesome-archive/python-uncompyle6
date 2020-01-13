@@ -62,6 +62,8 @@ class PythonParser(GenericASTBuilder):
             'kvlist_n',
             # Python 3.6+
             'come_from_loops',
+            # Python 3.7+
+            'importlist37',
             ]
         self.collect = frozenset(nt_list)
 
@@ -101,7 +103,6 @@ class PythonParser(GenericASTBuilder):
            many arguments it has. Often it is not used.
         """
         if rule not in self.new_rules:
-            # print("XXX ", rule) # debug
             self.new_rules.add(rule)
             self.addRule(rule, nop_func)
             customize[opname] = arg_count
@@ -496,44 +497,47 @@ class PythonParser(GenericASTBuilder):
         """
 
     def p_expr(self, args):
-        '''
-        expr ::= _mklambda
-        expr ::= LOAD_FAST
-        expr ::= LOAD_NAME
+        """
+        expr ::= LOAD_CODE
         expr ::= LOAD_CONST
-        expr ::= LOAD_GLOBAL
         expr ::= LOAD_DEREF
-        expr ::= binary_expr
-        expr ::= list
+        expr ::= LOAD_FAST
+        expr ::= LOAD_GLOBAL
+        expr ::= LOAD_NAME
+        expr ::= _mklambda
+        expr ::= and
+        expr ::= bin_op
+        expr ::= call
         expr ::= compare
         expr ::= dict
-        expr ::= and
+        expr ::= list
         expr ::= or
-        expr ::= unary_expr
-        expr ::= call
-        expr ::= unary_not
         expr ::= subscript
         expr ::= subscript2
+        expr ::= unary_op
+        expr ::= unary_not
         expr ::= yield
 
-        binary_expr ::= expr expr binary_op
-        binary_op   ::= BINARY_ADD
-        binary_op   ::= BINARY_MULTIPLY
-        binary_op   ::= BINARY_AND
-        binary_op   ::= BINARY_OR
-        binary_op   ::= BINARY_XOR
-        binary_op   ::= BINARY_SUBTRACT
-        binary_op   ::= BINARY_TRUE_DIVIDE
-        binary_op   ::= BINARY_FLOOR_DIVIDE
-        binary_op   ::= BINARY_MODULO
-        binary_op   ::= BINARY_LSHIFT
-        binary_op   ::= BINARY_RSHIFT
-        binary_op   ::= BINARY_POWER
+        # bin_op (formerly "binary_expr") is the Python AST BinOp
+        bin_op ::= expr expr binary_operator
+        binary_operator   ::= BINARY_ADD
+        binary_operator   ::= BINARY_MULTIPLY
+        binary_operator   ::= BINARY_AND
+        binary_operator   ::= BINARY_OR
+        binary_operator   ::= BINARY_XOR
+        binary_operator   ::= BINARY_SUBTRACT
+        binary_operator   ::= BINARY_TRUE_DIVIDE
+        binary_operator   ::= BINARY_FLOOR_DIVIDE
+        binary_operator   ::= BINARY_MODULO
+        binary_operator   ::= BINARY_LSHIFT
+        binary_operator   ::= BINARY_RSHIFT
+        binary_operator   ::= BINARY_POWER
 
-        unary_expr  ::= expr unary_op
-        unary_op    ::= UNARY_POSITIVE
-        unary_op    ::= UNARY_NEGATIVE
-        unary_op    ::= UNARY_INVERT
+        # unary_op (formerly "unary_expr") is the Python AST BinOp
+        unary_op          ::= expr unary_operator
+        unary_operator    ::= UNARY_POSITIVE
+        unary_operator    ::= UNARY_NEGATIVE
+        unary_operator    ::= UNARY_INVERT
 
         unary_not ::= expr UNARY_NOT
 
@@ -573,10 +577,10 @@ class PythonParser(GenericASTBuilder):
 
         # Positional arguments in make_function
         pos_arg ::= expr
-        '''
+        """
 
     def p_store(self, args):
-        '''
+        """
         # Note. The below is right-recursive:
         designList ::= store store
         designList ::= store DUP_TOP designList
@@ -596,7 +600,7 @@ class PythonParser(GenericASTBuilder):
         store           ::= store_subscript
         store_subscript ::= expr expr STORE_SUBSCR
         store           ::= unpack
-        '''
+        """
 
 
 def parse(p, tokens, customize):
@@ -627,12 +631,30 @@ def get_python_parser(
 
     if version < 3.0:
         if version < 2.2:
+            if version == 1.0:
+                import uncompyle6.parsers.parse10 as parse10
+                if compile_mode == 'exec':
+                    p = parse10.Python10Parser(debug_parser)
+                else:
+                    p = parse10.Python01ParserSingle(debug_parser)
+            elif version == 1.1:
+                import uncompyle6.parsers.parse11 as parse11
+                if compile_mode == 'exec':
+                    p = parse11.Python11Parser(debug_parser)
+                else:
+                    p = parse11.Python11ParserSingle(debug_parser)
+            if version == 1.2:
+                import uncompyle6.parsers.parse12 as parse12
+                if compile_mode == 'exec':
+                    p = parse12.Python12Parser(debug_parser)
+                else:
+                    p = parse12.Python12ParserSingle(debug_parser)
             if version == 1.3:
                 import uncompyle6.parsers.parse13 as parse13
                 if compile_mode == 'exec':
-                    p = parse13.Python14Parser(debug_parser)
+                    p = parse13.Python13Parser(debug_parser)
                 else:
-                    p = parse13.Python14ParserSingle(debug_parser)
+                    p = parse13.Python13ParserSingle(debug_parser)
             elif version == 1.4:
                 import uncompyle6.parsers.parse14 as parse14
                 if compile_mode == 'exec':
@@ -645,6 +667,12 @@ def get_python_parser(
                     p = parse15.Python15Parser(debug_parser)
                 else:
                     p = parse15.Python15ParserSingle(debug_parser)
+            elif version == 1.6:
+                import uncompyle6.parsers.parse16 as parse16
+                if compile_mode == 'exec':
+                    p = parse16.Python16Parser(debug_parser)
+                else:
+                    p = parse16.Python16ParserSingle(debug_parser)
             elif version == 2.1:
                 import uncompyle6.parsers.parse21 as parse21
                 if compile_mode == 'exec':

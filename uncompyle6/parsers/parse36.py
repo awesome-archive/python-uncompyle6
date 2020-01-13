@@ -21,6 +21,7 @@ from uncompyle6.parser import PythonParserSingle, nop_func
 from spark_parser import DEFAULT_DEBUG as PARSER_DEFAULT_DEBUG
 from uncompyle6.parsers.parse35 import Python35Parser
 from uncompyle6.scanners.tok import Token
+from uncompyle6.parsers.reducecheck import ifelsestmt, iflaststmt, and_check
 
 class Python36Parser(Python35Parser):
 
@@ -30,8 +31,15 @@ class Python36Parser(Python35Parser):
 
 
     def p_36misc(self, args):
-        """
-        sstmt ::= sstmt RETURN_LAST
+        """sstmt ::= sstmt RETURN_LAST
+
+        # long except clauses in a loop can sometimes cause a JUMP_BACK to turn into a
+        # JUMP_FORWARD to a JUMP_BACK. And when this happens there is an additional
+        # ELSE added to the except_suite. With better flow control perhaps we can
+        # sort this out better.
+        except_suite ::= c_stmts_opt POP_EXCEPT jump_except ELSE
+        except_suite_finalize ::= SETUP_FINALLY c_stmts_opt except_var_finalize END_FINALLY
+                                  _jump ELSE
 
         # 3.6 redoes how return_closure works. FIXME: Isolate to LOAD_CLOSURE
         return_closure   ::= LOAD_CLOSURE DUP_TOP STORE_NAME RETURN_VALUE RETURN_LAST
@@ -143,6 +151,17 @@ class Python36Parser(Python35Parser):
                                    COME_FROM_FINALLY
 
         compare_chained2 ::= expr COMPARE_OP come_froms JUMP_FORWARD
+
+        """
+
+    # Some of this is duplicated from parse37. Eventually we'll probably rebase from
+    # that and then we can remove this.
+    def p_37conditionals(self, args):
+        """
+        expr                       ::= conditional37
+        conditional37              ::= expr expr jf_cfs expr COME_FROM
+        jf_cfs                     ::= JUMP_FORWARD _come_froms
+        ifelsestmt                 ::= testexpr c_stmts_opt jf_cfs else_suite opt_come_from_except
         """
 
     def customize_grammar_rules(self, tokens, customize):
@@ -180,13 +199,7 @@ class Python36Parser(Python35Parser):
         for i, token in enumerate(tokens):
             opname = token.kind
 
-            if opname == 'LOAD_ASSERT':
-                if 'PyPy' in customize:
-                    rules_str = """
-                    stmt ::= JUMP_IF_NOT_DEBUG stmts COME_FROM
-                    """
-                    self.add_unique_doc_rules(rules_str, customize)
-            elif opname == 'FORMAT_VALUE':
+            if opname == 'FORMAT_VALUE':
                 rules_str = """
                     expr              ::= formatted_value1
                     formatted_value1  ::= expr FORMAT_VALUE
@@ -264,6 +277,23 @@ class Python36Parser(Python35Parser):
                 self.addRule(rule, nop_func)
                 rule = ('starred ::= %s %s' % ('expr ' * v, opname))
                 self.addRule(rule, nop_func)
+            elif opname == 'SETUP_ANNOTATIONS':
+                # 3.6 Variable Annotations PEP 526
+                # This seems to come before STORE_ANNOTATION, and doesn't
+                # correspond to direct Python source code.
+                rule = """
+                    stmt ::= SETUP_ANNOTATIONS
+                    stmt ::= ann_assign_init_value
+                    stmt ::= ann_assign_no_init
+
+                    ann_assign_init_value ::= expr store store_annotation
+                    ann_assign_no_init    ::= store_annotation
+                    store_annotation      ::= LOAD_NAME STORE_ANNOTATION
+                    store_annotation      ::= subscript STORE_ANNOTATION
+                 """
+                self.addRule(rule, nop_func)
+                # Check to combine assignment + annotation into one statement
+                self.check_reduce['assign'] = 'token'
             elif opname == 'SETUP_WITH':
                 rules_str = """
                 withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
@@ -289,8 +319,9 @@ class Python36Parser(Python35Parser):
                 self.addRule(rules_str, nop_func)
                 pass
             pass
+        return
 
-    def custom_classfunc_rule(self, opname, token, customize, next_token):
+    def custom_classfunc_rule(self, opname, token, customize, next_token, is_pypy):
 
         args_pos, args_kw = self.get_pos_kw(token)
 
@@ -312,10 +343,14 @@ class Python36Parser(Python35Parser):
             self.add_unique_rule('expr ::= async_call', token.kind, uniq_param, customize)
 
         if opname.startswith('CALL_FUNCTION_KW'):
-            self.addRule("expr ::= call_kw36", nop_func)
-            values = 'expr ' * token.attr
-            rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
-            self.add_unique_rule(rule, token.kind, token.attr, customize)
+            if is_pypy:
+                # PYPY doesn't follow CPython 3.6 CALL_FUNCTION_KW conventions
+                super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
+            else:
+                self.addRule("expr ::= call_kw36", nop_func)
+                values = 'expr ' * token.attr
+                rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
+                self.add_unique_rule(rule, token.kind, token.attr, customize)
         elif opname == 'CALL_FUNCTION_EX_KW':
             # Note: this doesn't exist in 3.7 and later
             self.addRule("""expr        ::= call_ex_kw4
@@ -380,7 +415,7 @@ class Python36Parser(Python35Parser):
                             """, nop_func)
             pass
         else:
-            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token)
+            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
 
     def reduce_is_invalid(self, rule, ast, tokens, first, last):
         invalid = super(Python36Parser,
@@ -388,6 +423,15 @@ class Python36Parser(Python35Parser):
                                                 tokens, first, last)
         if invalid:
             return invalid
+        if rule[0] == 'assign':
+            # Try to combine assignment + annotation into one statement
+            if (len(tokens) >= last + 1 and
+                tokens[last] == 'LOAD_NAME' and
+                tokens[last+1] == 'STORE_ANNOTATION' and
+                tokens[last-1].pattr == tokens[last+1].pattr):
+                # Will handle as ann_assign_init_value
+                return True
+            pass
         if rule[0] == 'call_kw':
             # Make sure we don't derive call_kw
             nt = ast[0]
@@ -408,7 +452,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 3.6:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

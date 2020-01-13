@@ -102,6 +102,8 @@ class Python26Parser(Python2Parser):
 
     def p_stmt26(self, args):
         """
+        stmt ::= ifelsestmtr
+
         # We use filler as a placeholder to keep nonterminal positions
         # the same across different grammars so that the same semantic actions
         # can be used
@@ -144,6 +146,11 @@ class Python26Parser(Python2Parser):
         whilestmt      ::= SETUP_LOOP testexpr l_stmts_opt jb_cf_pop POP_BLOCK
         whilestmt      ::= SETUP_LOOP testexpr returns POP_BLOCK COME_FROM
 
+        # In the "whilestmt" below, there isn't a COME_FROM when the
+        # "while" is the last thing in the module or function.
+
+        whilestmt      ::= SETUP_LOOP testexpr returns POP_TOP POP_BLOCK
+
         whileelsestmt  ::= SETUP_LOOP testexpr l_stmts_opt jb_pop POP_BLOCK
                            else_suitel COME_FROM
         while1elsestmt ::= SETUP_LOOP l_stmts JUMP_BACK else_suitel COME_FROM
@@ -173,6 +180,9 @@ class Python26Parser(Python2Parser):
         iflaststmt     ::= testexpr_then c_stmts_opt JUMP_ABSOLUTE come_froms POP_TOP
         iflaststmt     ::= testexpr      c_stmts_opt JUMP_ABSOLUTE come_froms POP_TOP
 
+        # "if"/"else" statement that ends in a RETURN
+        ifelsestmtr    ::= testexpr_then return_if_stmts returns
+
         testexpr_then  ::= testtrue_then
         testexpr_then  ::= testfalse_then
         testtrue_then  ::= expr jmp_true_then
@@ -181,7 +191,11 @@ class Python26Parser(Python2Parser):
         jmp_false_then ::= JUMP_IF_FALSE THEN POP_TOP
         jmp_true_then  ::= JUMP_IF_TRUE THEN POP_TOP
 
-        while1stmt ::= SETUP_LOOP returns COME_FROM
+        # In the "while1stmt" below, there sometimes isn't a
+        # "COME_FROM" when the "while1" is the last thing in the
+        # module or function.
+
+        while1stmt ::= SETUP_LOOP returns come_from_opt
         for_block  ::= returns _come_froms
         """
 
@@ -236,8 +250,11 @@ class Python26Parser(Python2Parser):
         genexpr_func ::= setup_loop_lf FOR_ITER store comp_iter JUMP_ABSOLUTE come_froms
                          POP_TOP jb_pop jb_pb_come_from
 
+        genexpr_func ::= setup_loop_lf FOR_ITER store comp_iter JUMP_BACK come_froms
+                         POP_TOP jb_pb_come_from
+
         generator_exp ::= LOAD_GENEXPR MAKE_FUNCTION_0 expr GET_ITER CALL_FUNCTION_1 COME_FROM
-        list_if ::= list_if ::= expr jmp_false_then list_iter
+        list_if ::= expr jmp_false_then list_iter
         '''
 
     def p_ret26(self, args):
@@ -324,9 +341,9 @@ class Python26Parser(Python2Parser):
                 WITH_CLEANUP END_FINALLY
         """)
         super(Python26Parser, self).customize_grammar_rules(tokens, customize)
-        if self.version >= 2.6:
-            self.check_reduce['and'] = 'AST'
+        self.check_reduce['and'] = 'AST'
         self.check_reduce['assert_expr_and'] = 'AST'
+        self.check_reduce["ifstmt"] = "tokens"
         self.check_reduce['list_for'] = 'AST'
         self.check_reduce['try_except'] = 'tokens'
         self.check_reduce['tryelsestmt'] = 'AST'
@@ -363,8 +380,19 @@ class Python26Parser(Python2Parser):
             # or that it jumps to the same place as the end of "and"
             jmp_false = ast[1][0]
             jmp_target = jmp_false.offset + jmp_false.attr + 3
+
             return not (jmp_target == tokens[test_index].offset or
                         tokens[last].pattr == jmp_false.pattr)
+
+        elif rule == ("ifstmt", ("testexpr", "_ifstmts_jump")):
+            for i in range(last-1, last-4, -1):
+                t = tokens[i]
+                if t == "JUMP_FORWARD":
+                    return t.attr > tokens[min(last, len(tokens)-1)].off2int()
+                elif t not in ("POP_TOP", "COME_FROM"):
+                    break
+                pass
+            pass
         elif rule == (
                 'list_for',
                 ('expr', 'for_iter', 'store', 'list_iter',
@@ -450,7 +478,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 2.6:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

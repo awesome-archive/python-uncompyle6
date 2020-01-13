@@ -1,4 +1,6 @@
-|buildstatus| |Latest Version| |Supported Python Versions|
+|buildstatus|  |Pypi Installs| |Latest Version| |Supported Python Versions|
+
+|packagestatus|
 
 uncompyle6
 ==========
@@ -11,9 +13,9 @@ Introduction
 ------------
 
 *uncompyle6* translates Python bytecode back into equivalent Python
-source code. It accepts bytecodes from Python version 1.3 to version
+source code. It accepts bytecodes from Python version 1.0 to version
 3.8, spanning over 24 years of Python releases. We include Dropbox's
-Python 2.5 bytecode and some PyPy bytecode.
+Python 2.5 bytecode and some PyPy bytecodes.
 
 Why this?
 ---------
@@ -44,14 +46,15 @@ not exist and there is just bytecode. Again, my debuggers make use of
 this.
 
 There were (and still are) a number of decompyle, uncompyle,
-uncompyle2, uncompyle3 forks around. Almost all of them come basically
-from the same code base, and (almost?) all of them are no longer
-actively maintained. One was really good at decompiling Python 1.5-2.3
-or so, another really good at Python 2.7, but that only. Another
-handles Python 3.2 only; another patched that and handled only 3.3.
-You get the idea. This code pulls all of these forks together and
-*moves forward*. There is some serious refactoring and cleanup in this
-code base over those old forks.
+uncompyle2, uncompyle3 forks around. Many of them come basically from
+the same code base, and (almost?) all of them are no longer actively
+maintained. One was really good at decompiling Python 1.5-2.3, another
+really good at Python 2.7, but that only. Another handles Python 3.2
+only; another patched that and handled only 3.3.  You get the
+idea. This code pulls all of these forks together and *moves
+forward*. There is some serious refactoring and cleanup in this code
+base over those old forks. Even more experimental refactoring is going
+on in decompile3_.
 
 This demonstrably does the best in decompiling Python across all
 Python versions. And even when there is another project that only
@@ -73,11 +76,11 @@ fixed in the other decompilers.
 Requirements
 ------------
 
-The code here can be run on Python versions 2.6 or later, PyPy 3-2.4,
-or PyPy-5.0.1.  Python versions 2.4-2.7 are supported in the
-python-2.4 branch.  The bytecode files it can read have been tested on
-Python bytecodes from versions 1.4, 2.1-2.7, and 3.0-3.8 and the
-above-mentioned PyPy versions.
+The code here can be run on Python versions 2.6 or later, PyPy 3-2.4
+and later.  Python versions 2.4-2.7 are supported in the python-2.4
+branch.  The bytecode files it can read have been tested on Python
+bytecodes from versions 1.4, 2.1-2.7, and 3.0-3.8 and later PyPy
+versions.
 
 Installation
 ------------
@@ -86,9 +89,9 @@ This uses setup.py, so it follows the standard Python routine:
 
 ::
 
-    pip install -e .  # set up to run from source tree
-                      # Or if you want to install instead
-    python setup.py install # may need sudo
+    $ pip install -e .  # set up to run from source tree
+                        # Or if you want to install instead
+    $ python setup.py install # may need sudo
 
 A GNU makefile is also provided so :code:`make install` (possibly as root or
 sudo) will do the steps above.
@@ -122,17 +125,6 @@ For usage help:
 
    $ uncompyle6 -h
 
-If you want strong verification of the correctness of the
-decompilation process, add the `--verify` option. But there are
-situations where this will indicate a failure, although the generated
-program is semantically equivalent. Using option `--weak-verify` will
-tell you if there is something definitely wrong. Generally, large
-swaths of code are decompiled correctly, if not the entire program.
-
-You can also cross compare the results with pycdc_ . Since they work
-differently, bugs here often aren't in that, and vice versa.
-
-
 Verification
 ------------
 
@@ -140,22 +132,25 @@ In older versions of Python it was possible to verify bytecode by
 decompiling bytecode, and then compiling using the Python interpreter
 for that bytecode version. Having done this the bytecode produced
 could be compared with the original bytecode. However as Python's code
-generation got better, this is no longer feasible.
+generation got better, this no longer was feasible.
 
-The verification that we use that doesn't check bytecode for
-equivalence but does check to see if the resulting decompiled source
-is a valid Python program by running the Python interpreter. Because
-the Python language has changed so much, for best results you should
-use the same Python version in checking as was used in creating the
-bytecode.
+If you want Python syntax verification of the correctness of the
+decompilation process, add the :code:`--syntax-verify` option. However since
+Python syntax changes, you should use this option if the bytecode is
+the right bytecode for the Python interpreter that will be checking
+the syntax.
 
-There are however an interesting class of these programs that is
-readily available give stronger verification: those programs that
-when run check some computation, or even better themselves.
+You can also cross compare the results with another python decompiler
+like pycdc_ . Since they work differently, bugs here often aren't in
+that, and vice versa.
 
-And already Python has a set of programs like this: the test suite
-for the standard library that comes with Python. We have some
-code in `test/stdlib` to facilitate this kind of checking.
+There is an interesting class of these programs that is readily
+available give stronger verification: those programs that when run
+test themselves. Our test suite includes these.
+
+And Python comes with another a set of programs like this: its test
+suite for the standard library. We have some code in :code:`test/stdlib` to
+facilitate this kind of checking too.
 
 Known Bugs/Restrictions
 -----------------------
@@ -185,22 +180,28 @@ In the Python 3 series, Python support is is strongest around 3.4 or
 3.0 is weird in that it in some ways resembles 2.6 more than it does
 3.1 or 2.7. Python 3.6 changes things drastically by using word codes
 rather than byte codes. As a result, the jump offset field in a jump
-instruction argument has been reduced. This makes the `EXTENDED_ARG`
+instruction argument has been reduced. This makes the :code:`EXTENDED_ARG`
 instructions are now more prevalent in jump instruction; previously
 they had been rare.  Perhaps to compensate for the additional
-`EXTENDED_ARG` instructions, additional jump optimization has been
+:code:`EXTENDED_ARG` instructions, additional jump optimization has been
 added. So in sum handling control flow by ad hoc means as is currently
 done is worse.
 
-Between Python 3.5, 3.6 and 3.7 there have been major changes to the
-`MAKE_FUNCTION` and `CALL_FUNCTION` instructions.
+Between Python 3.5, 3.6, 3.7 there have been major changes to the
+:code:`MAKE_FUNCTION` and :code:`CALL_FUNCTION` instructions.  Python
+
+Python 3.8 removes :code:`SETUP_LOOP`, :code:`SETUP_EXCEPT`,
+:code:`BREAK_LOOP`, and :code:`CONTINUE_LOOP`, instructions which may
+make control-flow detection harder, lacking the more sophisticated
+control-flow analysis that is planned. We'll see.
 
 Currently not all Python magic numbers are supported. Specifically in
 some versions of Python, notably Python 3.6, the magic number has
 changes several times within a version.
 
-**We support only released versions, not candidate versions.** Note however
-that the magic of a released version is usually the same as the *last* candidate version prior to release.
+**We support only released versions, not candidate versions.** Note
+however that the magic of a released version is usually the same as
+the *last* candidate version prior to release.
 
 There are also customized Python interpreters, notably Dropbox,
 which use their own magic and encrypt bytcode. With the exception of
@@ -222,15 +223,16 @@ There is lots to do, so please dig in and help.
 See Also
 --------
 
-* https://github.com/zrax/pycdc : purports to support all versions of Python. It is written in C++ and is most accurate for Python versions around 2.7 and 3.3 when the code was more actively developed. Accuracy for more recent versions of Python 3 and early versions of Python are especially lacking. See its `issue tracker <https://github.com/zrax/pycdc/issues>`_ for details. Currently lightly maintained.
+* https://github.com/rocky/python-decompile3 : Much smaller and more modern code, focusing on 3.7+. Changes in that will get migrated back ehre.
 * https://code.google.com/archive/p/unpyc3/ : supports Python 3.2 only. The above projects use a different decompiling technique than what is used here. Currently unmaintained.
 * https://github.com/figment/unpyc3/ : fork of above, but supports Python 3.3 only. Includes some fixes like supporting function annotations. Currently unmaintained.
-* https://github.com/wibiti/uncompyle2 : supports Python 2.7 only, but does that fairly well. There are situations where `uncompyle6` results are incorrect while `uncompyle2` results are not, but more often uncompyle6 is correct when uncompyle2 is not. Because `uncompyle6` adheres to accuracy over idiomatic Python, `uncompyle2` can produce more natural-looking code when it is correct. Currently `uncompyle2` is lightly maintained. See its issue `tracker <https://github.com/wibiti/uncompyle2/issues>`_ for more details
+* https://github.com/wibiti/uncompyle2 : supports Python 2.7 only, but does that fairly well. There are situations where :code:`uncompyle6` results are incorrect while :code:`uncompyle2` results are not, but more often uncompyle6 is correct when uncompyle2 is not. Because :code:`uncompyle6` adheres to accuracy over idiomatic Python, :code:`uncompyle2` can produce more natural-looking code when it is correct. Currently :code:`uncompyle2` is lightly maintained. See its issue `tracker <https://github.com/wibiti/uncompyle2/issues>`_ for more details
 * `How to report a bug <https://github.com/rocky/python-uncompyle6/blob/master/HOW-TO-REPORT-A-BUG.md>`_
 * The HISTORY_ file.
 * https://github.com/rocky/python-xdis : Cross Python version disassembler
 * https://github.com/rocky/python-xasm : Cross Python version assembler
 * https://github.com/rocky/python-uncompyle6/wiki : Wiki Documents which describe the code and aspects of it in more detail
+* https://github.com/zrax/pycdc : The README for this C++ code says it aims to support all versions of Python. It is best for Python versions around 2.7 and 3.3 when the code was initially developed. Accuracy for current versions of Python3 and early versions of Python is lacking. Without major effort, it is unlikely it can be made to support current Python 3. See its `issue tracker <https://github.com/zrax/pycdc/issues>`_ for details. Currently lightly maintained.
 
 
 .. _trepan: https://pypi.python.org/pypi/trepan2g
@@ -239,12 +241,16 @@ See Also
 .. _debuggers: https://pypi.python.org/pypi/trepan3k
 .. _remake: https://bashdb.sf.net/remake
 .. _pycdc: https://github.com/zrax/pycdc
+.. _decompile3: https://github.com/rocky/python-decompile3
 .. _this: https://github.com/rocky/python-uncompyle6/wiki/Deparsing-technology-and-its-use-in-exact-location-reporting
 .. |buildstatus| image:: https://travis-ci.org/rocky/python-uncompyle6.svg
 		 :target: https://travis-ci.org/rocky/python-uncompyle6
+.. |packagestatus| image:: https://repology.org/badge/vertical-allrepos/python:uncompyle6.svg
+		 :target: https://repology.org/project/python:uncompyle6/versions
 .. _PJOrion: http://www.koreanrandom.com/forum/topic/15280-pjorion-%D1%80%D0%B5%D0%B4%D0%B0%D0%BA%D1%82%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%BA%D0%BE%D0%BC%D0%BF%D0%B8%D0%BB%D1%8F%D1%86%D0%B8%D1%8F-%D0%B4%D0%B5%D0%BA%D0%BE%D0%BC%D0%BF%D0%B8%D0%BB%D1%8F%D1%86%D0%B8%D1%8F-%D0%BE%D0%B1%D1%84
 .. _Deobfuscator: https://github.com/extremecoders-re/PjOrion-Deobfuscator
 .. _Py2EXE: https://en.wikipedia.org/wiki/Py2exe
 .. |Supported Python Versions| image:: https://img.shields.io/pypi/pyversions/uncompyle6.svg
 .. |Latest Version| image:: https://badge.fury.io/py/uncompyle6.svg
 		 :target: https://badge.fury.io/py/uncompyle6
+.. |Pypi Installs| image:: https://pepy.tech/badge/uncompyle6/month

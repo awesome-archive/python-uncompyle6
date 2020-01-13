@@ -12,7 +12,7 @@
 #
 #  You should have received a copy of the GNU General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Isolate Python 3.6 version-specific semantic actions here.
+"""Isolate Python 3.8 version-specific semantic actions here.
 """
 
 ########################
@@ -80,10 +80,19 @@ def customize_for_version38(self, version):
             (0, 'expr'),
             (3, 'for_block'), -2 ),
 
+        'ifpoplaststmtl': ( '%|if %c:\n%+%c%-',
+                            (0, "testexpr"),
+                            (2, "c_stmts" ) ),
+
+        'ifstmtl':	  ( '%|if %c:\n%+%c%-',
+                            (0, "testexpr"),
+                            (1, "_ifstmts_jumpl") ),
+
         'whilestmt38': ( '%|while %c:\n%+%c%-\n\n',
-                         (0, 'testexpr'), (1, 'l_stmts') ),
+                         (1, 'testexpr'),
+                         2 ), # "l_stmts" or "pass"
         'whileTruestmt38': ( '%|while True:\n%+%c%-\n\n',
-                         (0, 'l_stmts') ),
+                             1 ), # "l_stmts" or "pass"
         'try_elsestmtl38': (
             '%|try:\n%+%c%-%c%|else:\n%+%c%-',
             (1, 'suite_stmts_opt'),
@@ -95,7 +104,18 @@ def customize_for_version38(self, version):
         'try_except_ret38': (
             '%|try:\n%+%|return %c%-\n%|except:\n%+%|%c%-\n\n',
                    (1, 'expr'), (-1, 'except_ret38a') ),
-        'tryfinally38': (
+        'tryfinally38rstmt': (
             '%|try:\n%+%c%-%|finally:\n%+%c%-\n\n',
                    (3, 'returns'), 6 ),
+        'tryfinally38stmt': (
+            '%|try:\n%+%c%-%|finally:\n%+%c%-\n\n',
+            (1, "suite_stmts_opt"),
+            (6, "suite_stmts_opt") ),
+        'tryfinally38astmt': (
+            '%|try:\n%+%c%-%|finally:\n%+%c%-\n\n',
+            (2, "suite_stmts_opt"),
+            (8, "suite_stmts_opt") ),
+        "named_expr": ( # AKA "walrus operator"
+            "%c := %c", (2, "store"), (0, "expr")
+            )
     })
