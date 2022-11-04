@@ -1,4 +1,4 @@
-#  Copyright (c) 2016-2019 Rocky Bernstein
+#  Copyright (c) 2016-2020, 2022 Rocky Bernstein
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -29,9 +29,22 @@ class Python36Parser(Python35Parser):
         self.customized = {}
 
 
-    def p_36misc(self, args):
+    def p_36_jump(self, args):
         """
-        sstmt ::= sstmt RETURN_LAST
+        # Zero or one COME_FROM
+        # And/or expressions have this
+        come_from_opt ::= COME_FROM?
+        """
+    def p_36_misc(self, args):
+        """sstmt ::= sstmt RETURN_LAST
+
+        # long except clauses in a loop can sometimes cause a JUMP_BACK to turn into a
+        # JUMP_FORWARD to a JUMP_BACK. And when this happens there is an additional
+        # ELSE added to the except_suite. With better flow control perhaps we can
+        # sort this out better.
+        except_suite ::= c_stmts_opt POP_EXCEPT jump_except ELSE
+        except_suite_finalize ::= SETUP_FINALLY c_stmts_opt except_var_finalize END_FINALLY
+                                  _jump ELSE
 
         # 3.6 redoes how return_closure works. FIXME: Isolate to LOAD_CLOSURE
         return_closure   ::= LOAD_CLOSURE DUP_TOP STORE_NAME RETURN_VALUE RETURN_LAST
@@ -47,9 +60,9 @@ class Python36Parser(Python35Parser):
         # 3.6 due to jump optimization, we sometimes add RETURN_END_IF where
         # RETURN_VALUE is meant. Specifcally this can happen in
         # ifelsestmt -> ...else_suite _. suite_stmts... (last) stmt
-        return ::= ret_expr RETURN_END_IF
-        return ::= ret_expr RETURN_VALUE COME_FROM
-        return_stmt_lambda ::= ret_expr RETURN_VALUE_LAMBDA COME_FROM
+        return             ::= return_expr RETURN_END_IF
+        return             ::= return_expr RETURN_VALUE COME_FROM
+        return_stmt_lambda ::= return_expr RETURN_VALUE_LAMBDA COME_FROM
 
         # A COME_FROM is dropped off because of JUMP-to-JUMP optimization
         and  ::= expr jmp_false expr
@@ -58,7 +71,34 @@ class Python36Parser(Python35Parser):
         jf_cf       ::= JUMP_FORWARD COME_FROM
         cf_jf_else  ::= come_froms JUMP_FORWARD ELSE
 
-        conditional ::= expr jmp_false expr jf_cf expr COME_FROM
+        if_exp ::= expr jmp_false expr jf_cf expr COME_FROM
+
+        async_for_stmt36   ::= SETUP_LOOP expr
+                               GET_AITER
+                               LOAD_CONST YIELD_FROM
+                               SETUP_EXCEPT GET_ANEXT LOAD_CONST
+                               YIELD_FROM
+                               store
+                               POP_BLOCK JUMP_BACK COME_FROM_EXCEPT DUP_TOP
+                               LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                               END_FINALLY for_block
+                               COME_FROM
+                               POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP POP_BLOCK
+                               COME_FROM_LOOP
+
+        async_for_stmt36   ::= SETUP_LOOP expr
+                               GET_AITER
+                               LOAD_CONST YIELD_FROM SETUP_EXCEPT GET_ANEXT LOAD_CONST
+                               YIELD_FROM
+                               store
+                               POP_BLOCK JUMP_FORWARD COME_FROM_EXCEPT DUP_TOP
+                               LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                               END_FINALLY
+                               COME_FROM
+                               for_block
+                               COME_FROM
+                               POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP POP_BLOCK
+                               COME_FROM_LOOP
 
         async_for_stmt     ::= SETUP_LOOP expr
                                GET_AITER
@@ -73,20 +113,7 @@ class Python36Parser(Python35Parser):
                                COME_FROM_LOOP
 
         stmt      ::= async_for_stmt36
-
-        async_for_stmt36   ::= SETUP_LOOP expr
-                               GET_AITER
-                               LOAD_CONST YIELD_FROM
-                               SETUP_EXCEPT GET_ANEXT LOAD_CONST
-                               YIELD_FROM
-                               store
-                               POP_BLOCK JUMP_BACK COME_FROM_EXCEPT DUP_TOP
-                               LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
-                               END_FINALLY for_block
-                               COME_FROM
-                               POP_TOP POP_TOP POP_TOP POP_EXCEPT
-                               POP_TOP POP_BLOCK
-                               COME_FROM_LOOP
+        stmt      ::= async_forelse_stmt36
 
         async_forelse_stmt ::= SETUP_LOOP expr
                                GET_AITER
@@ -100,14 +127,35 @@ class Python36Parser(Python35Parser):
                                for_block POP_BLOCK
                                else_suite COME_FROM_LOOP
 
+        async_forelse_stmt36 ::= SETUP_LOOP expr
+                               GET_AITER
+                               LOAD_CONST YIELD_FROM SETUP_EXCEPT GET_ANEXT LOAD_CONST
+                               YIELD_FROM
+                               store
+                               POP_BLOCK JUMP_FORWARD COME_FROM_EXCEPT DUP_TOP
+                               LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                               END_FINALLY COME_FROM
+                               for_block _come_froms
+                               POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+                               POP_BLOCK
+                               else_suite COME_FROM_LOOP
+
         # Adds a COME_FROM_ASYNC_WITH over 3.5
         # FIXME: remove corresponding rule for 3.5?
 
         except_suite ::= c_stmts_opt COME_FROM POP_EXCEPT jump_except COME_FROM
 
         jb_cfs      ::= JUMP_BACK come_froms
+
+        # If statement inside a loop.
+        stmt                ::= ifstmtl
+        ifstmtl            ::= testexpr _ifstmts_jumpl
+        _ifstmts_jumpl     ::= c_stmts JUMP_BACK
+
         ifelsestmtl ::= testexpr c_stmts_opt jb_cfs else_suitel
         ifelsestmtl ::= testexpr c_stmts_opt cf_jf_else else_suitel
+        ifelsestmt  ::= testexpr c_stmts_opt cf_jf_else else_suite _come_froms
+        ifelsestmt  ::= testexpr c_stmts come_froms else_suite come_froms
 
         # In 3.6+, A sequence of statements ending in a RETURN can cause
         # JUMP_FORWARD END_FINALLY to be omitted from try middle
@@ -143,6 +191,19 @@ class Python36Parser(Python35Parser):
                                    COME_FROM_FINALLY
 
         compare_chained2 ::= expr COMPARE_OP come_froms JUMP_FORWARD
+
+        stmt ::= genexpr_func
+        genexpr_func ::= LOAD_ARG _come_froms FOR_ITER store comp_iter JUMP_BACK
+        """
+
+    # Some of this is duplicated from parse37. Eventually we'll probably rebase from
+    # that and then we can remove this.
+    def p_36_conditionals(self, args):
+        """
+        expr                       ::= if_exp37
+        if_exp37                   ::= expr expr jf_cfs expr COME_FROM
+        jf_cfs                     ::= JUMP_FORWARD _come_froms
+        ifelsestmt                 ::= testexpr c_stmts_opt jf_cfs else_suite opt_come_from_except
         """
 
     def customize_grammar_rules(self, tokens, customize):
@@ -150,6 +211,8 @@ class Python36Parser(Python35Parser):
         # """)
         super(Python36Parser, self).customize_grammar_rules(tokens, customize)
         self.remove_rules("""
+           _ifstmts_jumpl     ::= c_stmts_opt
+           _ifstmts_jumpl     ::= _ifstmts_jump
            except_handler     ::= JUMP_FORWARD COME_FROM_EXCEPT except_stmts END_FINALLY COME_FROM
            async_for_stmt     ::= SETUP_LOOP expr
                                   GET_AITER
@@ -175,18 +238,23 @@ class Python36Parser(Python35Parser):
                                   else_suite COME_FROM_LOOP
 
         """)
-        self.check_reduce['call_kw'] = 'AST'
+        self.check_reduce["call_kw"] = "AST"
+
+        # Opcode names in the custom_ops_processed set have rules that get added
+        # unconditionally and the rules are constant. So they need to be done
+        # only once and if we see the opcode a second we don't have to consider
+        # adding more rules.
+        #
+        # Note: BUILD_TUPLE_UNPACK_WITH_CALL gets considered by
+        # default because it starts with BUILD. So we'll set to ignore it from
+        # the start.
+        custom_ops_processed = set()
+
 
         for i, token in enumerate(tokens):
             opname = token.kind
 
-            if opname == 'LOAD_ASSERT':
-                if 'PyPy' in customize:
-                    rules_str = """
-                    stmt ::= JUMP_IF_NOT_DEBUG stmts COME_FROM
-                    """
-                    self.add_unique_doc_rules(rules_str, customize)
-            elif opname == 'FORMAT_VALUE':
+            if opname == 'FORMAT_VALUE':
                 rules_str = """
                     expr              ::= formatted_value1
                     formatted_value1  ::= expr FORMAT_VALUE
@@ -198,19 +266,19 @@ class Python36Parser(Python35Parser):
                 formatted_value2  ::= expr expr FORMAT_VALUE_ATTR
                 """
                 self.add_unique_doc_rules(rules_str, customize)
-            elif opname == 'MAKE_FUNCTION_8':
+            elif opname == 'MAKE_FUNCTION_CLOSURE':
                 if 'LOAD_DICTCOMP' in self.seen_ops:
                     # Is there something general going on here?
                     rule = """
                        dict_comp ::= load_closure LOAD_DICTCOMP LOAD_STR
-                                     MAKE_FUNCTION_8 expr
+                                     MAKE_FUNCTION_CLOSURE expr
                                      GET_ITER CALL_FUNCTION_1
                        """
                     self.addRule(rule, nop_func)
                 elif 'LOAD_SETCOMP' in self.seen_ops:
                     rule = """
                        set_comp ::= load_closure LOAD_SETCOMP LOAD_STR
-                                    MAKE_FUNCTION_8 expr
+                                    MAKE_FUNCTION_CLOSURE expr
                                     GET_ITER CALL_FUNCTION_1
                        """
                     self.addRule(rule, nop_func)
@@ -218,24 +286,26 @@ class Python36Parser(Python35Parser):
             elif opname == 'BEFORE_ASYNC_WITH':
                 rules_str = """
                   stmt ::= async_with_stmt
+                  async_with_pre     ::= BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM SETUP_ASYNC_WITH
+                  async_with_post    ::= COME_FROM_ASYNC_WITH
+                                         WITH_CLEANUP_START GET_AWAITABLE LOAD_CONST YIELD_FROM
+                                         WITH_CLEANUP_FINISH END_FINALLY
                   async_with_as_stmt ::= expr
-                               BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               SETUP_ASYNC_WITH store
+                               async_with_pre
+                               store
                                suite_stmts_opt
                                POP_BLOCK LOAD_CONST
-                               COME_FROM_ASYNC_WITH
-                               WITH_CLEANUP_START
-                               GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               WITH_CLEANUP_FINISH END_FINALLY
+                               async_with_post
                  stmt ::= async_with_as_stmt
                  async_with_stmt ::= expr
-                               BEFORE_ASYNC_WITH GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               SETUP_ASYNC_WITH POP_TOP suite_stmts_opt
+                               POP_TOP
+                               suite_stmts_opt
                                POP_BLOCK LOAD_CONST
-                               COME_FROM_ASYNC_WITH
-                               WITH_CLEANUP_START
-                               GET_AWAITABLE LOAD_CONST YIELD_FROM
-                               WITH_CLEANUP_FINISH END_FINALLY
+                               async_with_post
+                 async_with_stmt ::= expr
+                               POP_TOP
+                               suite_stmts_opt
+                               async_with_post
                 """
                 self.addRule(rules_str, nop_func)
 
@@ -264,33 +334,217 @@ class Python36Parser(Python35Parser):
                 self.addRule(rule, nop_func)
                 rule = ('starred ::= %s %s' % ('expr ' * v, opname))
                 self.addRule(rule, nop_func)
+            elif opname == "GET_AITER":
+                self.addRule(
+                    """
+                    expr                ::= generator_exp_async
+
+                    generator_exp_async ::= load_genexpr LOAD_STR MAKE_FUNCTION_0 expr
+                                            GET_AITER LOAD_CONST YIELD_FROM CALL_FUNCTION_1
+                    stmt                ::= genexpr_func_async
+
+                    func_async_prefix   ::= _come_froms
+                                            LOAD_CONST YIELD_FROM
+                                            SETUP_EXCEPT GET_ANEXT LOAD_CONST YIELD_FROM
+                    func_async_middle   ::= POP_BLOCK JUMP_FORWARD COME_FROM_EXCEPT
+                                            DUP_TOP LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                                            END_FINALLY COME_FROM
+                    genexpr_func_async  ::= LOAD_ARG func_async_prefix
+                                            store func_async_middle comp_iter
+                                            JUMP_BACK
+                                            POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+
+                    expr                ::= list_comp_async
+                    list_comp_async     ::= LOAD_LISTCOMP LOAD_STR MAKE_FUNCTION_0
+                                            expr GET_AITER
+                                            LOAD_CONST YIELD_FROM CALL_FUNCTION_1
+                                            GET_AWAITABLE LOAD_CONST
+                                            YIELD_FROM
+
+                    expr                ::= list_comp_async
+                    list_afor2          ::= func_async_prefix
+                                            store func_async_middle list_iter
+                                            JUMP_BACK
+                                            POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+                    list_comp_async     ::= BUILD_LIST_0 LOAD_ARG list_afor2
+                    get_aiter           ::= expr GET_AITER
+                    list_afor           ::= get_aiter list_afor2
+                    list_iter           ::= list_afor
+                   """,
+                    nop_func,
+                )
+
+            elif opname == "GET_AITER":
+                self.add_unique_doc_rules("get_aiter ::= expr GET_AITER", customize)
+
+                if not {"MAKE_FUNCTION_0", "MAKE_FUNCTION_CLOSURE"} in self.seen_ops:
+                    self.addRule(
+                        """
+                        expr                ::= dict_comp_async
+                        expr                ::= generator_exp_async
+                        expr                ::= list_comp_async
+
+                        dict_comp_async     ::= LOAD_DICTCOMP
+                                                LOAD_STR
+                                                MAKE_FUNCTION_0
+                                                get_aiter
+                                                CALL_FUNCTION_1
+
+                        dict_comp_async     ::= BUILD_MAP_0 LOAD_ARG
+                                                dict_comp_async
+
+                        func_async_middle   ::= POP_BLOCK JUMP_FORWARD COME_FROM_EXCEPT
+                                                DUP_TOP LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                                                END_FINALLY COME_FROM
+
+                        func_async_prefix   ::= _come_froms SETUP_EXCEPT GET_ANEXT LOAD_CONST YIELD_FROM
+
+                        generator_exp_async ::= load_genexpr LOAD_STR MAKE_FUNCTION_0
+                                                get_aiter CALL_FUNCTION_1
+
+                        genexpr_func_async  ::= LOAD_ARG func_async_prefix
+                                                store func_async_middle comp_iter
+                                                JUMP_LOOP COME_FROM
+                                                POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+
+                        # FIXME this is a workaround for probalby some bug in the Earley parser
+                        # if we use get_aiter, then list_comp_async doesn't match, and I don't
+                        # understand why.
+                        expr_get_aiter      ::= expr GET_AITER
+
+                        list_afor           ::= get_aiter list_afor2
+
+                        list_afor2          ::= func_async_prefix
+                                                store func_async_middle list_iter
+                                                JUMP_LOOP COME_FROM
+                                                POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+
+                        list_comp_async     ::= BUILD_LIST_0 LOAD_ARG list_afor2
+                        list_comp_async     ::= LOAD_LISTCOMP LOAD_STR MAKE_FUNCTION_0
+                                                expr_get_aiter CALL_FUNCTION_1
+                                                GET_AWAITABLE LOAD_CONST
+                                                YIELD_FROM
+
+                        list_iter           ::= list_afor
+
+                        set_comp_async       ::= LOAD_SETCOMP
+                                                 LOAD_STR
+                                                 MAKE_FUNCTION_0
+                                                 get_aiter
+                                                 CALL_FUNCTION_1
+
+                        set_comp_async       ::= LOAD_CLOSURE
+                                                 BUILD_TUPLE_1
+                                                 LOAD_SETCOMP
+                                                 LOAD_STR MAKE_FUNCTION_CLOSURE
+                                                 get_aiter CALL_FUNCTION_1
+                                                 await
+                       """,
+                        nop_func,
+                    )
+                    custom_ops_processed.add(opname)
+
+                self.addRule(
+                    """
+                    dict_comp_async      ::= BUILD_MAP_0 LOAD_ARG
+                                             dict_comp_async
+
+                    expr                 ::= dict_comp_async
+                    expr                 ::= generator_exp_async
+                    expr                 ::= list_comp_async
+                    expr                 ::= set_comp_async
+
+                    func_async_middle   ::= POP_BLOCK JUMP_FORWARD COME_FROM_EXCEPT
+                                            DUP_TOP LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                                            END_FINALLY _come_froms
+
+                    get_aiter            ::= expr GET_AITER
+
+                    list_afor            ::= get_aiter list_afor2
+
+                    list_comp_async      ::= BUILD_LIST_0 LOAD_ARG list_afor2
+                    list_iter            ::= list_afor
+
+
+                    set_afor             ::= get_aiter set_afor2
+                    set_iter             ::= set_afor
+                    set_iter             ::= set_for
+
+                    set_comp_async       ::= BUILD_SET_0 LOAD_ARG
+                                             set_comp_async
+
+                   """,
+                    nop_func,
+                )
+                custom_ops_processed.add(opname)
+
+
+            elif opname == "GET_ANEXT":
+                self.addRule(
+                    """
+                    func_async_prefix   ::= _come_froms SETUP_EXCEPT GET_ANEXT LOAD_CONST YIELD_FROM
+                    func_async_prefix   ::= _come_froms SETUP_FINALLY GET_ANEXT LOAD_CONST YIELD_FROM POP_BLOCK
+                    func_async_prefix   ::= _come_froms
+                                            LOAD_CONST YIELD_FROM
+                                            SETUP_EXCEPT GET_ANEXT LOAD_CONST YIELD_FROM
+                    func_async_middle   ::= JUMP_FORWARD COME_FROM_EXCEPT
+                                            DUP_TOP LOAD_GLOBAL COMPARE_OP POP_JUMP_IF_TRUE
+                    list_comp_async     ::= BUILD_LIST_0 LOAD_ARG list_afor2
+                    list_afor2          ::= func_async_prefix
+                                            store list_iter
+                                            JUMP_BACK COME_FROM_FINALLY
+                                            END_ASYNC_FOR
+                    list_afor2          ::= func_async_prefix
+                                            store func_async_middle list_iter
+                                            JUMP_LOOP COME_FROM
+                                            POP_TOP POP_TOP POP_TOP POP_EXCEPT POP_TOP
+                   """,
+                    nop_func,
+                )
+                custom_ops_processed.add(opname)
+
+            elif opname == 'SETUP_ANNOTATIONS':
+                # 3.6 Variable Annotations PEP 526
+                # This seems to come before STORE_ANNOTATION, and doesn't
+                # correspond to direct Python source code.
+                rule = """
+                    stmt ::= SETUP_ANNOTATIONS
+                    stmt ::= ann_assign_init_value
+                    stmt ::= ann_assign_no_init
+
+                    ann_assign_init_value ::= expr store store_annotation
+                    ann_assign_no_init    ::= store_annotation
+                    store_annotation      ::= LOAD_NAME STORE_ANNOTATION
+                    store_annotation      ::= subscript STORE_ANNOTATION
+                 """
+                self.addRule(rule, nop_func)
+                # Check to combine assignment + annotation into one statement
+                self.check_reduce['assign'] = 'token'
+            elif opname == "WITH_CLEANUP_START":
+                rules_str = """
+                  stmt        ::= with_null
+                  with_null   ::= with_suffix
+                  with_suffix ::= WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                """
+                self.addRule(rules_str, nop_func)
             elif opname == 'SETUP_WITH':
                 rules_str = """
-                withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
-                               WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                  with       ::= expr SETUP_WITH POP_TOP suite_stmts_opt COME_FROM_WITH
+                                 with_suffix
 
-                # Removes POP_BLOCK LOAD_CONST from 3.6-
-                withasstmt ::= expr SETUP_WITH store suite_stmts_opt COME_FROM_WITH
-                               WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
+                  # Removes POP_BLOCK LOAD_CONST from 3.6-
+                  withasstmt ::= expr SETUP_WITH store suite_stmts_opt COME_FROM_WITH
+                                 with_suffix
+                  with       ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
+                                 BEGIN_FINALLY COME_FROM_WITH
+                                 with_suffix
                 """
-                if self.version < 3.8:
-                    rules_str += """
-                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
-                                   LOAD_CONST
-                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH END_FINALLY
-                    """
-                else:
-                    rules_str += """
-                    withstmt   ::= expr SETUP_WITH POP_TOP suite_stmts_opt POP_BLOCK
-                                   BEGIN_FINALLY COME_FROM_WITH
-                                   WITH_CLEANUP_START WITH_CLEANUP_FINISH
-                                   END_FINALLY
-                    """
                 self.addRule(rules_str, nop_func)
                 pass
             pass
+        return
 
-    def custom_classfunc_rule(self, opname, token, customize, next_token):
+    def custom_classfunc_rule(self, opname, token, customize, next_token, is_pypy):
 
         args_pos, args_kw = self.get_pos_kw(token)
 
@@ -312,10 +566,14 @@ class Python36Parser(Python35Parser):
             self.add_unique_rule('expr ::= async_call', token.kind, uniq_param, customize)
 
         if opname.startswith('CALL_FUNCTION_KW'):
-            self.addRule("expr ::= call_kw36", nop_func)
-            values = 'expr ' * token.attr
-            rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
-            self.add_unique_rule(rule, token.kind, token.attr, customize)
+            if is_pypy:
+                # PYPY doesn't follow CPython 3.6 CALL_FUNCTION_KW conventions
+                super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
+            else:
+                self.addRule("expr ::= call_kw36", nop_func)
+                values = 'expr ' * token.attr
+                rule = "call_kw36 ::= expr {values} LOAD_CONST {opname}".format(**locals())
+                self.add_unique_rule(rule, token.kind, token.attr, customize)
         elif opname == 'CALL_FUNCTION_EX_KW':
             # Note: this doesn't exist in 3.7 and later
             self.addRule("""expr        ::= call_ex_kw4
@@ -353,7 +611,7 @@ class Python36Parser(Python35Parser):
                          starred     ::= expr
                          call_ex     ::= expr starred CALL_FUNCTION_EX
                          """, nop_func)
-            if self.version >= 3.6:
+            if self.version >= (3, 6):
                 if 'BUILD_MAP_UNPACK_WITH_CALL' in self.seen_ops:
                     self.addRule("""
                             expr        ::= call_ex_kw
@@ -380,7 +638,7 @@ class Python36Parser(Python35Parser):
                             """, nop_func)
             pass
         else:
-            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token)
+            super(Python36Parser, self).custom_classfunc_rule(opname, token, customize, next_token, is_pypy)
 
     def reduce_is_invalid(self, rule, ast, tokens, first, last):
         invalid = super(Python36Parser,
@@ -388,6 +646,15 @@ class Python36Parser(Python35Parser):
                                                 tokens, first, last)
         if invalid:
             return invalid
+        if rule[0] == 'assign':
+            # Try to combine assignment + annotation into one statement
+            if (len(tokens) >= last + 1 and
+                tokens[last] == 'LOAD_NAME' and
+                tokens[last+1] == 'STORE_ANNOTATION' and
+                tokens[last-1].pattr == tokens[last+1].pattr):
+                # Will handle as ann_assign_init_value
+                return True
+            pass
         if rule[0] == 'call_kw':
             # Make sure we don't derive call_kw
             nt = ast[0]
@@ -408,7 +675,7 @@ if __name__ == '__main__':
     p.check_grammar()
     from uncompyle6 import PYTHON_VERSION, IS_PYPY
     if PYTHON_VERSION == 3.6:
-        lhs, rhs, tokens, right_recursive = p.check_sets()
+        lhs, rhs, tokens, right_recursive, dup_rhs = p.check_sets()
         from uncompyle6.scanner import get_scanner
         s = get_scanner(PYTHON_VERSION, IS_PYPY)
         opcode_set = set(s.opc.opname).union(set(

@@ -2,6 +2,7 @@
 # Bug was code not knowing which Python versions
 # have kwargs coming before positional args in code.
 
+"""This program is self-checking!"""
 # RUNNABLE!
 
 def tometadata(self, metadata, schema, Table, args, name=None):
@@ -79,3 +80,7 @@ class ResultMixin(object):
 
 class SplitResult(namedtuple('SplitResult', 'scheme netloc path query fragment'), ResultMixin):
     pass
+
+# From 3.3.7 test_long.py
+# Bug was that we need parens around first "0"
+assert (0).bit_length() == 0

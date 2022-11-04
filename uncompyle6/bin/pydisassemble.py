@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # Mode: -*- python -*-
 #
-# Copyright (c) 2015-2016, 2018 by Rocky Bernstein <rb@dustyfeet.com>
+# Copyright (c) 2015-2016, 2018, 2020, 2022 by Rocky Bernstein <rb@dustyfeet.com>
 #
 from __future__ import print_function
 import sys, os, getopt
 
-from uncompyle6.disas import disassemble_file
-from uncompyle6.version import VERSION
+from uncompyle6.code_fns import disassemble_file
+from uncompyle6.version import __version__
 
 program, ext = os.path.splitext(os.path.basename(__file__))
 
@@ -16,11 +16,18 @@ Usage:
   {0} [OPTIONS]... FILE
   {0} [--help | -h | -V | --version]
 
-Disassemble FILE with the instruction mangling that is done to
+Disassemble/Tokenize FILE with in the way that is done to
 assist uncompyle6 in parsing the instruction stream. For example
 instructions with variable-length arguments like CALL_FUNCTION and
-BUILD_LIST have arguement counts appended to the instruction name, and
-COME_FROM instructions are inserted into the instruction stream.
+BUILD_LIST have argument counts appended to the instruction name, and
+COME_FROM psuedo instructions are inserted into the instruction stream.
+Bit flag values encoded in an operand are expanding, EXTENDED_ARG
+value are folded into the following instruction operand.
+
+Like the parser, you may find this more high-level and or helpful.
+However if you want a true disassembler see the Standard built-in
+Python library module "dis", or pydisasm from the cross-version
+Python bytecode package "xdis".
 
 Examples:
   {0} foo.pyc
@@ -58,7 +65,7 @@ Type -h for for full help.""" % program
             print(__doc__)
             sys.exit(1)
         elif opt in ('-V', '--version'):
-            print("%s %s" % (program, VERSION))
+            print("%s %s" % (program, __version__))
             sys.exit(0)
         else:
             print(opt)

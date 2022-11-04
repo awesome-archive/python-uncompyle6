@@ -1,60 +1,66 @@
 <!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
 **Table of Contents**
 
-- [The difficulty of the problem](#the-difficulty-of-the-problem)
+- [Ethics](#ethics)
+- [The importance of your bug report](#the-importance-of-your-bug-report)
+- [The difficulty of the problem and your bug](#the-difficulty-of-the-problem-and-your-bug)
 - [Is it really a bug?](#is-it-really-a-bug)
     - [Do you have valid bytecode?](#do-you-have-valid-bytecode)
     - [Semantic equivalence vs. exact source code](#semantic-equivalence-vs-exact-source-code)
 - [What to send (minimum requirements)](#what-to-send-minimum-requirements)
 - [What to send (additional helpful information)](#what-to-send-additional-helpful-information)
     - [But I don't *have* the source code!](#but-i-dont-have-the-source-code)
-    - [But I don't *have* the source code and am incapable of figuring how how to do a hand disassembly!](#but-i-dont-have-the-source-code-and-am-incapable-of-figuring-how-how-to-do-a-hand-disassembly)
+        - [But I don't *have* the source code and am incapable of figuring how to do a hand disassembly!](#but-i-dont-have-the-source-code-and-am-incapable-of-figuring-how-to-do-a-hand-disassembly)
 - [Narrowing the problem](#narrowing-the-problem)
 - [Karma](#karma)
 - [Confidentiality of Bug Reports](#confidentiality-of-bug-reports)
-- [Ethics](#ethics)
 
 <!-- markdown-toc end -->
-# The difficulty of the problem
+
+TL;DR (too long; didn't read)
+
+* Don't do something illegal. And don't ask me to do something illegal or help you do something illegal
+* We already have an infinite supply of decompilation bugs that need fixing, and an automated mechanism for finding more. Decompilation bugs get addressed by easiness to fix and by whim. If you expect yours to be fixed ahead of those, you need to justify why.
+* When asking for help, you may be asked for what you've tried on your own first. There are plenty of sources of information about this code.
+* If you are looking for *timely* help or support, well, that is typically known paid service. I don't really have a mechanism for that since I have a full-time job. But supporting the project is an approximation.
+* Submitting a bug or issue report that is likely to get acted upon may require a bit of effort on your part to make it easy for the problem solver. If you are not willing to do that, please don't waste our time. As indicated above, supporting the project will increase the likelihood of your issue getting noticed and acted upon.
+
+# Ethics
+
+I do not condone using this program for unethical or illegal purposes. More detestable, at least to me, is asking for help to assist you in something that might not legitimate.
+
+Don't use the issue tracker for such solicitations. To try to stave off illegitimate behavior, you should note that the issue tracker, the code, and bugs mentioned in that are in the open: there is no
+confidentiality. You may be asked about the authorship or claimed ownership of the bytecode. If I think something is not quite right, I may label the issue questionable which may make the it easier those who are looking for illegal activity.
+
+
+# The importance of your bug report
+
+For many open-source projects bugs where the expectation is that bugs are rare, reporting bugs in a *thoughtful* way can be helpful. See also [How to Ask Questions the Smart Way](http://www.catb.org/~esr/faqs/smart-questions.html).
+
+In this project though, most of the bug reports boil down to the something like: I have I am trying to reverse engineer some code that I am not the author/owner and that person doesn't want me to have access to. I am hitting a problem somewhere along the line which might have to do with decompilation, but it could be something else like how the bytecode was extracted, some problem in deliberately obfuscated code, or the use some kind of Python bytecode version that isn't supported by the decompiler.
+
+While you are free to report these, unless you sponsor the project, I may close them with about the same amount of effort spent that I think was used to open the report for them. And if you spent a considerable amount of time to create the bug report but didn't follow instructions given here and in the issue template, I am sorry in advance. Just go back, read, and follow instructions.
+
+This project already has an infinite supply of bugs that have been narrowed to the most minimal form and where I have source code to compare against. And in the unlikely event this supply runs out, I have automated means for generating *another* infinite supply.
+
+In this project the task of justifying why addressing your bug is of use to the community, and why it should be prioritized over the others, is the bug reporter's responsibility.
+
+While in the abstract, I have no problem answering questions about how to read a Python traceback or install Python software, or trying to understand what is going wrong in your particular setup, I am not a paid support person and there other things I'd rather be doing with my limited volunteer time. So save us both time, effort, and aggravation: use other avenues like StackOverflow. Again, justifying why you should receive unpaid help is the help requester's responsibility.
+
+
+# The difficulty of the problem and your bug
 
 This decompiler is a constant work in progress: Python keeps
 changing, and so does its code generation.
 
-There is no Python decompiler yet that I know about that will
-decompile everything. Overall, I think this one probably does the best
-job of *any* Python decompiler that handles such a wide range of
-versions.
+There is no Python decompiler yet that I know about that will decompile everything. Overall, I think this one probably does the best job of *any* Python decompiler that handles such a wide range of versions.
 
-But at any given time, there are a number of valid Python bytecode
-files that I know of that will cause problems. See, for example, the
-list in
+But at any given time, there are a number of valid Python bytecode files that I know of that will cause problems. See, for example, the list in
 [`test/stdlib/runtests.sh`](https://github.com/rocky/python-uncompyle6/blob/master/test/stdlib/runtests.sh).
 
-But I understand: you would the bugs _you_ encounter addressed before
-all the other known bugs.
+There are far more bug reporters than there are bug fixers.
 
-From my standpoint, the good thing about the bugs listed in
-`runtests.sh` is that each test case is small and isolated to a single
-kind of problem. And I'll tend to fix easier, more isolated cases than
-generic "something's wrong" kinds of bugs where I'd have to do a bit
-of work to figure out what's up, if not use some sort of mind reading,
-make some guesses, and perform some experiments to see if the guesses
-are correct. I can't read minds, nor am I into guessing games; I'd
-rather devote the effort spent instead towards fixing bugs that are
-precisely defined.
-
-And it often turns out that by just fixing the well-defined and
-prescribed cases, the ill-defined amorphous cases as well will get
-handled as well.
-
-In sum, you may need to do some work to have the bug you have found
-handled before the hundreds of other bugs, and other things I could be
-doing.
-
-No one is getting paid to work to work on this project, let alone the
-bugs you may have an interest in. If you require decompiling bytecode
-immediately, consider using a decompilation service, listed further
-down in this document.
+Unless you are a sponsor of this project, it may take a while, maybe a week or so, before the bug report is noticed, let alone acted upon. Things eventually get fixed, but it may take years. And if your bug hasn't been narrowed, it might happen as a result of some other bug fix.
 
 # Is it really a bug?
 
@@ -62,7 +68,7 @@ down in this document.
 ## Do you have valid bytecode?
 
 As mentioned in README.rst, this project doesn't handle obfuscated
-code. See README.rst for suggestions for how to remove some kinds of
+code, release candidates, and the most recent versions of Python: version 3.9 and up. See README.rst for suggestions for how to remove some kinds of
 obfuscation.
 
 Checking if bytecode is valid is pretty simple: disassemble the code.
@@ -72,18 +78,7 @@ disassembler called `pydisasm`.
 
 ## Semantic equivalence vs. exact source code
 
-Consider how Python compiles something like "(x*y) + 5". Early on
-Python creates an "abstract syntax tree" (AST) for this. And this is
-"abstract" in the sense that unimportant, redundant or unnecessary
-items have been removed. Here, this means that any notion that you
-wrote "x+y" in parenthesis is lost, since in this context they are
-unneeded. Also lost is the fact that the multiplication didn't have
-spaces around it while the addition did. It should not come as a
-surprise then that the bytecode which is derived from the AST also has
-no notion of such possible variation. Generally this kind of thing
-isn't noticed since the Python community has laid out a very rigid set
-of formatting guidelines; and it has largely beaten the community into
-compliance.
+Consider how Python compiles something like "(x*y) + 5". Early on Python creates an "abstract syntax tree" (AST) for this. And this is "abstract" in the sense that unimportant, redundant or unnecessary items have been removed. Here, this means that any notion that you wrote "x+y" in parenthesis is lost, since in this context they are unneeded. Also lost is the fact that the multiplication didn't have spaces around it while the addition did. It should not come as a surprise then that the bytecode which is derived from the AST also has no notion of such possible variation. Generally this kind of thing isn't noticed since the Python community has laid out a very rigid set of formatting guidelines; and it has largely beaten the community into compliance.
 
 Almost all versions of Python can perform some sort of code
 improvement that can't be undone. In earlier versions of Python it is
@@ -144,8 +139,7 @@ if False:
 
 Python will eliminate the entire "if" statement.
 
-So just because the text isn't the same, does not
-necessarily mean there's a bug.
+So just because the text isn't the same, this does not necessarily mean there's a bug.
 
 # What to send (minimum requirements)
 
@@ -166,7 +160,7 @@ Also try to narrow the bug. See below.
 Some kind folks also give the invocation they used and the output
 which usually includes an error message produced. This is
 helpful. From this, I can figure out what OS you are running this on
-and what version of *uncomplye6* was used. Therefore, if you _don't_
+and what version of *uncompyle6* was used. Therefore, if you _don't_
 provide the input command and the output from that, please give:
 
 * _uncompyle6_ version used
@@ -176,30 +170,18 @@ provide the input command and the output from that, please give:
 
 ## But I don't *have* the source code!
 
-Sure, I get it. No problem. There is Python assembly code on parse
-errors, so simply by hand decompile that. To get a full disassembly,
-use `pydisasm` from the [xdis](https://pypi.python.org/pypi/xdis)
-package. Opcodes are described in the documentation for
-the [dis](https://docs.python.org/3.6/library/dis.html) module.
+There is Python assembly code on parse errors, so simply by hand decompile that. To get a full disassembly, use `pydisasm` from the [xdis](https://pypi.python.org/pypi/xdis) package. Opcodes are described in the documentation for the [dis](https://docs.python.org/3.6/library/dis.html) module.
 
 ### But I don't *have* the source code and am incapable of figuring how to do a hand disassembly!
 
-Well, you could learn. No one is born into this world knowing how to
-disassemble Python bytecode. And as Richard Feynman once said, "What
-one fool can learn, so can another."
+Well, you could learn. No one is born into this world knowing how to disassemble Python bytecode. And as Richard Feynman once said, "What one fool can learn, so can another."
 
-If this is too difficult, or too time consuming, or not of interest to
-you, then perhaps what require is a decompilation service. [Crazy
-Compilers](http://www.crazy-compilers.com/decompyle/) offers a
-byte-code decompiler service for versions of Python up to 2.6. (If
-there are others around let me know and I'll list them here.)
+If this is too difficult, or too time consuming, or not of interest to you, then you might consider [sponsoring](https://github.com/sponsors/rocky) the project. [Crazy
+Compilers](http://www.crazy-compilers.com/decompyle/) offers a byte-code decompiler service for versions of Python up to 2.6. (If there are others around let me know and I'll list them here.) Don't be surprised if I ask you to pay for work (if I think the work is ethical) when you want me to work on your problem that I think isn't of interest or benefit to anyone but yourself or a small limited number of people, or I think the need is questionable.
 
 # Narrowing the problem
 
-I don't need or want the entire source code base for the file(s) or
-module(s) can't be decompiled. I just need those file(s) or module(s).
-If there are problems in several files, file a bug report for each
-file.
+I don't need or want the entire source code base for the file(s) or module(s) can't be decompiled. I just need those file(s) or module(s). If there are problems in several files, file a bug report for each file.
 
 Python modules can get quite large, and usually decompilation problems
 occur in a single function or maybe the main-line code but not any of
@@ -217,33 +199,29 @@ likely the problem will be fixed and fixed sooner.
 # Karma
 
 I realize that following the instructions given herein puts a bit of
-burden on the bug reporter. In my opinion, this is justified as
-attempts to balance somewhat the burden and effort needed to fix the
-bug and the attempts to balance number of would-be bug reporters with
-the number of bug fixers. Better bug reporters are more likely to move
-in the category of bug fixers.
+burden on the bug reporter. This is justified since it attempts to balance
+the burden and effort needed to fix the bug with the amount of effort to report the problem. And it attempts
+to balance number of would-be bug reporters with the number of bug
+fixers. Better bug reporters are more likely to move in the category
+of bug fixers.
 
 The barrier to reporting a big is pretty small: all you really need is
 a github account, and the ability to type something after clicking
 some buttons. So the reality is that many people just don't bother to
 read these instructions, let alone follow it to any simulacrum.
 
-And the reality is also that bugs sometimes get fixed even though
-these instructions are not followed.
+That said, bugs sometimes get fixed even though these instructions are not followed.
 
-So one factors I may take into consideration is the bug reporter's karma.
+I may take into consideration is the bug reporter's karma.
 
-* Have you demonstrably contributed to open source? I may look at your
-  github profile to see what contributions you have made, how popular
-  those contributions are, or how popular you are.
-* How appreciative are you? Have you starred this project that you are
-  seeking help from? Have you starred _any_ github project? And the above
-  two kind of feed into ...
+* Have you demonstrably contributed to open source? I may look at your github profile to see what contributions you have made, how popular those contributions are, or how popular you are.
+* How appreciative are you? Have you starred this project that you are seeking help from? Have you starred _any_ github project? And the above two kind of feed into ...
 * Attitude. Some people feel that they are doing me and the world a
-  great favor by just pointing out that there is a problem whose solution
-  would greatly benefit them. Perhaps this is why they feel that
-  instructions are not to be followed by them, nor any need for
-  showing evidence gratitude when help is offered them.
+  great favor by just pointing out that there is a problem whose
+  solution would greatly benefit them. (This might account partially
+  for the fact that those that have this attitude often don't read or
+  follow instructions such as those given here.)
+
 
 # Confidentiality of Bug Reports
 
@@ -255,16 +233,6 @@ remains would not be an issue.
 However feel free to remove any comments, and modify variable names
 or constants in the source code.
 
-# Ethics
+If there is some legitimate reason to keep confidentiality, you can contact me by email to explain the extenuating circumstances. However I tend to discard without reading anonymous email.
 
-I do not condone using this program for unethical or illegal purposes.
-More detestable, at least to me, is asking for help to assist you in
-something that might not legitimate.
-
-Don't use the issue tracker for such solicitations. To try to stave
-off illegitimate behavior, you should note that the issue tracker, the
-code, and bugs mentioned in that are in the open: there is no
-confidentiality. You may be asked about the authorship or claimed
-ownership of the bytecode. If I think something is not quite right, I
-may label the issue questionable which may make the it easier those
-who are looking for illegal activity.
+Private consulting available via https://calendly.com/rb3216 rates: $150 for 30 minutes; $250 for 60 minutes.

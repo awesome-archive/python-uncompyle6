@@ -1,4 +1,4 @@
-#  Copyright (c) 2019 by Rocky Bernstein
+#  Copyright (c) 2019 2021 by Rocky Bernstein
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -28,18 +28,19 @@ def customize_for_version26_27(self, version):
     # For 2.6 we use the older syntax which
     # matches how we parse this in bytecode
     ########################################
-    if version > 2.6:
+    if version > (2, 6):
         TABLE_DIRECT.update({
-            'except_cond2':	( '%|except %c as %c:\n', 1, 5 ),
+            "except_cond2":	( "%|except %c as %c:\n", 1, 5 ),
             # When a generator is a single parameter of a function,
             # it doesn't need the surrounding parenethesis.
-            'call_generator': ('%c%P', 0, (1, -1, ', ', 100)),
+            "call_generator": ('%c%P', 0, (1, -1, ', ', 100)),
         })
     else:
         TABLE_DIRECT.update({
             'testtrue_then': ( 'not %p', (0, 22) ),
         })
 
+    # FIXME: this should be a transformation
     def n_call(node):
         mapping = self._get_mapping(node)
         key = node
@@ -59,3 +60,9 @@ def customize_for_version26_27(self, version):
 
         self.default(node)
     self.n_call = n_call
+
+    def n_import_from(node):
+        if node[0].pattr > 0:
+            node[2].pattr = ("." * node[0].pattr) + node[2].pattr
+        self.default(node)
+    self.n_import_from = n_import_from

@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # Mode: -*- python -*-
 #
-# Copyright (c) 2015-2017, 2019 by Rocky Bernstein
+# Copyright (c) 2015-2017, 2019-2020 by Rocky Bernstein
 # Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #
 from __future__ import print_function
 import sys, os, getopt, time
+from xdis.version_info import version_tuple_to_str
 
 program = 'uncompyle6'
 
@@ -38,7 +39,7 @@ Options:
   --fragments   use fragments deparser
   --verify      compare generated source with input byte-code
   --verify-run  compile generated source, run it and check exit code
-  --weak-verify compile generated source
+  --syntax-verify compile generated source
   --linemaps    generated line number correspondencies between byte-code
                 and generated source output
   --encoding  <encoding>
@@ -46,10 +47,12 @@ Options:
   --help        show this message
 
 Debugging Options:
-  --asm     | -a  include byte-code       (disables --verify)
-  --grammar | -g  show matching grammar
-  --tree    | -t  include syntax tree     (disables --verify)
-  --tree++        add template rules to --tree when possible
+  --asm     | -a        include byte-code       (disables --verify)
+  --grammar | -g        show matching grammar
+  --tree={before|after}
+  -t {before|after}     include syntax before (or after) tree transformation
+                        (disables --verify)
+  --tree++ | -T         add template rules to --tree=before when possible
 
 Extensions of generated files:
   '.pyc_dis' '.pyo_dis'   successfully decompiled (and verified if --verify)
@@ -61,7 +64,7 @@ program = 'uncompyle6'
 
 from uncompyle6 import verify
 from uncompyle6.main import main, status_msg
-from uncompyle6.version import VERSION
+from uncompyle6.version import __version__
 
 def usage():
     print(__doc__)
@@ -72,10 +75,12 @@ def main_bin():
     if not (sys.version_info[0:2] in ((2, 6), (2, 7), (3, 0),
                                       (3, 1), (3, 2), (3, 3),
                                       (3, 4), (3, 5), (3, 6),
-                                      (3, 7), (3, 8)
+                                      (3, 7), (3, 8), (3, 9), (3, 10)
         )):
-        print('Error: %s requires Python 2.6-3.8' % program,
-              file=sys.stderr)
+        print(
+            f"Error: {program} can decompile only bytecode from Python 3.7"
+            f""" to 3.8.\n\tYou have version: {version_tuple_to_str()}."""
+        )
         sys.exit(-1)
 
     do_verify = recurse_dirs = False
@@ -89,9 +94,9 @@ def main_bin():
     try:
         opts, pyc_paths = getopt.getopt(sys.argv[1:], 'hac:gtTdrVo:p:',
                                     'help asm compile= grammar linemaps recurse '
-                                    'timestamp tree tree+ '
+                                    'timestamp tree= tree+ '
                                     'fragments verify verify-run version '
-                                    'weak-verify '
+                                    'syntax-verify '
                                     'showgrammar encoding='.split(' '))
     except getopt.GetoptError as e:
         print('%s: %s' % (os.path.basename(sys.argv[0]), e),  file=sys.stderr)
@@ -103,11 +108,11 @@ def main_bin():
             print(__doc__)
             sys.exit(0)
         elif opt in ('-V', '--version'):
-            print("%s %s" % (program, VERSION))
+            print("%s %s" % (program, __version__))
             sys.exit(0)
         elif opt == '--verify':
             options['do_verify'] = 'strong'
-        elif opt == '--weak-verify':
+        elif opt == '--syntax-verify':
             options['do_verify'] = 'weak'
         elif opt == '--fragments':
             options['do_fragments'] = True
@@ -119,10 +124,20 @@ def main_bin():
             options['showasm'] = 'after'
             options['do_verify'] = None
         elif opt in ('--tree', '-t'):
-            options['showast'] = True
+            if 'showast' not in options:
+                options['showast'] = {}
+            if val == 'before':
+                options['showast'][val] = True
+            elif val == 'after':
+                options['showast'][val] = True
+            else:
+                options['showast']['before'] = True
             options['do_verify'] = None
         elif opt in ('--tree+', '-T'):
-            options['showast'] = 'Full'
+            if 'showast' not in options:
+                options['showast'] = {}
+            options['showast']['after'] = True
+            options['showast']['before'] = True
             options['do_verify'] = None
         elif opt in ('--grammar', '-g'):
             options['showgrammar'] = True
@@ -186,6 +201,9 @@ def main_bin():
                 mess = status_msg(do_verify, *result)
                 print('# ' + mess)
                 pass
+        except ImportError as e:
+            print(str(e))
+            sys.exit(2)
         except (KeyboardInterrupt):
             pass
         except verify.VerifyCmpError:
@@ -214,7 +232,7 @@ def main_bin():
                     if f is None:
                         break
                     (t, o, f, v) = \
-                      main(src_base, out_base, [f], None, outfile, **options)
+                      main(src_base, out_base, [f], [], outfile, **options)
                     tot_files += t
                     okay_files += o
                     failed_files += f

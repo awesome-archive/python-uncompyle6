@@ -22,3 +22,22 @@ def columnize(l):
     return [i for i in range(len(l))
             if not isinstance(l[i], str)]
 assert [0, 2] == columnize([1, 'a', 2])
+
+# From 3.7.6 _collections_abc.py
+# Bug was handling "or" in listcomp
+def count(values, x):
+    return sum(1 for v in values if v or x)
+
+assert count([2, 2], False) == 2
+assert count([], False) == 0
+assert count([], True) == 0
+assert count([2], True) == 1
+assert count([0], False) == 0
+
+# From 3.7 test_generators
+# Bug was in handling the way list_if is optimized in 3.7+;
+# We need list_if37 and compare_chained37.
+def init_board(c):
+    return [io for io in c if 3 <= io < 5]
+
+assert init_board(list(range(6))) == [3, 4]

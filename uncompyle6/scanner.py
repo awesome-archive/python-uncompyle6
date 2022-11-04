@@ -1,4 +1,4 @@
-#  Copyright (c) 2016, 2018-2019 by Rocky Bernstein
+#  Copyright (c) 2016, 2018-2022 by Rocky Bernstein
 #  Copyright (c) 2005 by Dan Pascu <dan@windowmaker.org>
 #  Copyright (c) 2000-2002 by hartmut Goebel <h.goebel@crazy-compilers.com>
 #  Copyright (c) 1999 John Aycock
@@ -21,77 +21,186 @@ scanner/ingestion module. From here we call various version-specific
 scanners, e.g. for Python 2.7 or 3.4.
 """
 
-from __future__ import print_function
-
+from typing import Optional
 from array import array
 from collections import namedtuple
-import sys
 
-from uncompyle6 import PYTHON3, IS_PYPY
 from uncompyle6.scanners.tok import Token
+from xdis.version_info import IS_PYPY, version_tuple_to_str
 import xdis
-from xdis.bytecode import (
-    Bytecode, instruction_size, extended_arg_val, next_offset)
-from xdis.magics import canonic_python_version
-from xdis.util import code2num
+from xdis import (
+    Bytecode,
+    canonic_python_version,
+    code2num,
+    extended_arg_val,
+    instruction_size,
+    next_offset,
+)
 
 # The byte code versions we support.
-# Note: these all have to be floats
-PYTHON_VERSIONS = frozenset((1.3, 1.4, 1.5,
-                             2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7,
-                             3.0, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8))
+# Note: these all have to be tuples of 2 ints
+PYTHON_VERSIONS = frozenset(
+    (
+        (1, 0),
+        (1, 1),
+        (1, 3),
+        (1, 4),
+        (1, 5),
+        (1, 6),
+        (2, 1),
+        (2, 2),
+        (2, 3),
+        (2, 4),
+        (2, 5),
+        (2, 6),
+        (2, 7),
+        (3, 0),
+        (3, 1),
+        (3, 2),
+        (3, 3),
+        (3, 4),
+        (3, 5),
+        (3, 6),
+        (3, 7),
+        (3, 8),
+    )
+)
 
-CANONIC2VERSION = dict((canonic_python_version[str(v)], v) for v in PYTHON_VERSIONS)
+CANONIC2VERSION = dict(
+    (canonic_python_version[version_tuple_to_str(python_version)], python_version)
+    for python_version in PYTHON_VERSIONS
+)
 
 # Magic changed mid version for Python 3.5.2. Compatibility was added for
 # the older 3.5 interpreter magic.
-CANONIC2VERSION['3.5.2'] = 3.5
+CANONIC2VERSION["3.5.2"] = 3.5
 
 
 # FIXME: DRY
-if PYTHON3:
-    intern = sys.intern
-    L65536 = 65536
+L65536 = 65536
 
-    def long(l):
-        return l
-else:
-    L65536 = long(65536) # NOQA
+def long(num):
+    return num
+
+
+CONST_COLLECTIONS = ("CONST_LIST", "CONST_SET", "CONST_DICT", "CONST_MAP")
+
 
 class Code(object):
-    '''
+    """
     Class for representing code-objects.
 
     This is similar to the original code object, but additionally
     the diassembled code is stored in the attribute '_tokens'.
-    '''
-    def __init__(self, co, scanner, classname=None):
+    """
+
+    def __init__(self, co, scanner, classname=None, show_asm=None):
         for i in dir(co):
-            if i.startswith('co_'):
+            if i.startswith("co_"):
                 setattr(self, i, getattr(co, i))
-        self._tokens, self._customize = scanner.ingest(co, classname)
+        self._tokens, self._customize = scanner.ingest(co, classname, show_asm=show_asm)
+
 
 class Scanner(object):
-
-    def __init__(self, version, show_asm=None, is_pypy=False):
+    def __init__(self, version: tuple, show_asm=None, is_pypy=False):
         self.version = version
         self.show_asm = show_asm
         self.is_pypy = is_pypy
 
-        if version in PYTHON_VERSIONS:
+        if version[:2] in PYTHON_VERSIONS:
+            v_str = f"""opcode_{version_tuple_to_str(version, start=0, end=2, delimiter="")}"""
             if is_pypy:
-                v_str = "opcode_%spypy" % (int(version * 10))
-            else:
-                v_str = "opcode_%s" % (int(version * 10))
-            exec("from xdis.opcodes import %s" % v_str)
+                v_str += "pypy"
+            exec(f"""from xdis.opcodes import {v_str}""")
             exec("self.opc = %s" % v_str)
         else:
-            raise TypeError("%s is not a Python version I know about" % version)
+            raise TypeError(
+                "%s is not a Python version I know about"
+                % version_tuple_to_str(version)
+            )
 
         self.opname = self.opc.opname
 
         # FIXME: This weird Python2 behavior is not Python3
         self.resetTokenClass()
+
+    def bound_collection_from_tokens(
+        self, tokens, t, i, collection_type
+    ):
+        count = t.attr
+        assert isinstance(count, int)
+
+        assert count <= i
+
+        if collection_type == "CONST_DICT":
+            # constant dictionaries work via BUILD_CONST_KEY_MAP and
+            # handle the values() like sets and lists.
+            # However, the keys() are an LOAD_CONST of the keys.
+            # adjust offset to account for this
+            count += 1
+
+        # For small lists don't bother
+        if count < 5:
+            return None
+
+        collection_start = i - count
+
+        for j in range(collection_start, i):
+            if tokens[j].kind not in (
+                "LOAD_CONST",
+                "LOAD_FAST",
+                "LOAD_GLOBAL",
+                "LOAD_NAME",
+            ):
+                return None
+
+        collection_enum = CONST_COLLECTIONS.index(collection_type)
+
+        # If we go there all instructions before tokens[i] are LOAD_CONST and we can replace
+        # add a boundary marker and change LOAD_CONST to something else
+        new_tokens = tokens[:-count]
+        start_offset = tokens[collection_start].offset
+        new_tokens.append(
+            Token(
+                opname="COLLECTION_START",
+                attr=collection_enum,
+                pattr=collection_type,
+                offset="%s_0" % start_offset,
+                has_arg=True,
+                opc=self.opc,
+                has_extended_arg=False,
+            )
+        )
+        if tokens[j] == "LOAD_CONST":
+            opname = "ADD_VALUE"
+        else:
+            opname = "ADD_VALUE_VAR"
+        for j in range(collection_start, i):
+            new_tokens.append(
+                Token(
+                    opname=opname,
+                    attr=tokens[j].attr,
+                    pattr=tokens[j].pattr,
+                    offset=tokens[j].offset,
+                    has_arg=True,
+                    linestart=tokens[j].linestart,
+                    opc=self.opc,
+                    has_extended_arg=False,
+                )
+            )
+        new_tokens.append(
+            Token(
+                opname="BUILD_%s" % collection_type,
+                attr=t.attr,
+                pattr=t.pattr,
+                offset=t.offset,
+                has_arg=t.has_arg,
+                linestart=t.linestart,
+                opc=t.opc,
+                has_extended_arg=False,
+            )
+        )
+        return new_tokens
 
     def build_instructions(self, co):
         """
@@ -100,7 +209,7 @@ class Scanner(object):
         """
         # FIXME: remove this when all subsidiary functions have been removed.
         # We should be able to get everything from the self.insts list.
-        self.code = array('B', co.co_code)
+        self.code = array("B", co.co_code)
 
         bytecode = Bytecode(co, self.opc)
         self.build_prev_op()
@@ -119,16 +228,15 @@ class Scanner(object):
 
         # Offset: lineno pairs, only for offsets which start line.
         # Locally we use list for more convenient iteration using indices
-        if self.version > 1.4:
-            linestarts = list(self.opc.findlinestarts(code_obj))
-        else:
-            linestarts = [[0, 1]]
+        linestarts = list(self.opc.findlinestarts(code_obj))
         self.linestarts = dict(linestarts)
+        if not self.linestarts:
+            return []
 
         # 'List-map' which shows line number of current op and offset of
         # first op on following line, given offset of op as index
         lines = []
-        LineTuple = namedtuple('LineTuple', ['l_no', 'next'])
+        LineTuple = namedtuple("LineTuple", ["l_no", "next"])
 
         # Iterate through available linestarts, and fill
         # the data for all code offsets encountered until
@@ -164,23 +272,23 @@ class Scanner(object):
             for _ in range(instruction_size(op, self.opc)):
                 self.prev_op.append(offset)
 
-    def is_jump_forward(self, offset):
+    def is_jump_forward(self, offset: int) -> bool:
         """
         Return True if the code at offset is some sort of jump forward.
         That is, it is ether "JUMP_FORWARD" or an absolute jump that
         goes forward.
         """
         opname = self.get_inst(offset).opname
-        if opname == 'JUMP_FORWARD':
+        if opname == "JUMP_FORWARD":
             return True
-        if opname != 'JUMP_ABSOLUTE':
+        if opname != "JUMP_ABSOLUTE":
             return False
         return offset < self.get_target(offset)
 
-    def prev_offset(self, offset):
-        return self.insts[self.offset2inst_index[offset]-1].offset
+    def prev_offset(self, offset: int) -> int:
+        return self.insts[self.offset2inst_index[offset] - 1].offset
 
-    def get_inst(self, offset):
+    def get_inst(self, offset: int):
         # Instructions can get moved as a result of EXTENDED_ARGS removal.
         # So if "offset" is not in self.offset2inst_index, then
         # we assume that it was an instruction moved back.
@@ -191,7 +299,7 @@ class Scanner(object):
             assert self.code[offset] == self.opc.EXTENDED_ARG
         return self.insts[self.offset2inst_index[offset]]
 
-    def get_target(self, offset, extended_arg=0):
+    def get_target(self, offset: int, extended_arg: int = 0) -> int:
         """
         Get next instruction offset for op located at given <offset>.
         NOTE: extended_arg is no longer used
@@ -204,11 +312,11 @@ class Scanner(object):
             target = next_offset(inst.opcode, self.opc, inst.offset)
         return target
 
-    def get_argument(self, pos):
-        arg = self.code[pos+1] + self.code[pos+2] * 256
+    def get_argument(self, pos: int):
+        arg = self.code[pos + 1] + self.code[pos + 2] * 256
         return arg
 
-    def next_offset(self, op, offset):
+    def next_offset(self, op, offset: int) -> int:
         return xdis.next_offset(op, self.opc, offset)
 
     def print_bytecode(self):
@@ -216,11 +324,11 @@ class Scanner(object):
             op = self.code[i]
             if op in self.JUMP_OPS:
                 dest = self.get_target(i, op)
-                print('%i\t%s\t%i' % (i, self.opname[op], dest))
+                print("%i\t%s\t%i" % (i, self.opname[op], dest))
             else:
-                print('%i\t%s\t' % (i, self.opname[op]))
+                print("%i\t%s\t" % (i, self.opname[op]))
 
-    def first_instr(self, start, end, instr, target=None, exact=True):
+    def first_instr(self, start: int, end: int, instr, target=None, exact=True):
         """
         Find the first <instr> in the block from start to end.
         <instr> is any python bytecode instruction or a list of opcodes
@@ -232,11 +340,9 @@ class Scanner(object):
         Return index to it or None if not found.
         """
         code = self.code
-        assert(start >= 0 and end <= len(code))
+        assert start >= 0 and end <= len(code)
 
-        try:
-            None in instr
-        except:
+        if not isinstance(instr, list):
             instr = [instr]
 
         result_offset = None
@@ -256,7 +362,9 @@ class Scanner(object):
                         result_offset = offset
         return result_offset
 
-    def last_instr(self, start, end, instr, target=None, exact=True):
+    def last_instr(
+        self, start: int, end: int, instr, target=None, exact=True
+    ) -> Optional[int]:
         """
         Find the last <instr> in the block from start to end.
         <instr> is any python bytecode instruction or a list of opcodes
@@ -274,9 +382,7 @@ class Scanner(object):
         if not (start >= 0 and end <= len(code)):
             return None
 
-        try:
-            None in instr
-        except:
+        if not isinstance(instr, list):
             instr = [instr]
 
         result_offset = None
@@ -287,7 +393,7 @@ class Scanner(object):
             op = code[offset]
 
             if op == self.opc.EXTENDED_ARG:
-                arg = code2num(code, offset+1) | extended_arg
+                arg = code2num(code, offset + 1) | extended_arg
                 extended_arg = extended_arg_val(self.opc, arg)
                 continue
 
@@ -354,7 +460,9 @@ class Scanner(object):
     # FIXME: this is broken on 3.6+. Replace remaining (2.x-based) calls
     # with inst_matches
 
-    def all_instr(self, start, end, instr, target=None, include_beyond_target=False):
+    def all_instr(
+        self, start: int, end: int, instr, target=None, include_beyond_target=False
+    ):
         """
         Find all `instr` in the block from start to end.
         `instr` is any Python opcode or a list of opcodes
@@ -365,7 +473,7 @@ class Scanner(object):
         """
 
         code = self.code
-        assert(start >= 0 and end <= len(code))
+        assert start >= 0 and end <= len(code)
 
         try:
             None in instr
@@ -379,7 +487,7 @@ class Scanner(object):
             op = code[offset]
 
             if op == self.opc.EXTENDED_ARG:
-                arg = code2num(code, offset+1) | extended_arg
+                arg = code2num(code, offset + 1) | extended_arg
                 extended_arg = extended_arg_val(self.opc, arg)
                 continue
 
@@ -423,8 +531,11 @@ class Scanner(object):
         last_was_extarg = False
         n = len(instructions)
         for i, inst in enumerate(instructions):
-            if (inst.opname == 'EXTENDED_ARG'
-                and i+1 < n and instructions[i+1].opname != 'MAKE_FUNCTION'):
+            if (
+                inst.opname == "EXTENDED_ARG"
+                and i + 1 < n
+                and instructions[i + 1].opname != "MAKE_FUNCTION"
+            ):
                 last_was_extarg = True
                 starts_line = inst.starts_line
                 is_jump_target = inst.is_jump_target
@@ -435,13 +546,15 @@ class Scanner(object):
                 # j = self.stmts.index(inst.offset)
                 # self.lines[j] = offset
 
-                new_inst = inst._replace(starts_line=starts_line,
-                                        is_jump_target=is_jump_target,
-                                        offset=offset)
+                new_inst = inst._replace(
+                    starts_line=starts_line,
+                    is_jump_target=is_jump_target,
+                    offset=offset,
+                )
                 inst = new_inst
                 if i < n:
                     new_prev = self.prev_op[instructions[i].offset]
-                    j = instructions[i+1].offset
+                    j = instructions[i + 1].offset
                     old_prev = self.prev_op[j]
                     while self.prev_op[j] == old_prev and j < n:
                         self.prev_op[j] = new_prev
@@ -463,9 +576,12 @@ class Scanner(object):
         for i in ifs:
             # For each offset, if line number of current and next op
             # is the same
-            if self.lines[i].l_no == self.lines[i+3].l_no:
+            if self.lines[i].l_no == self.lines[i + 3].l_no:
                 # Skip last op on line if it is some sort of POP_JUMP.
-                if self.code[self.prev[self.lines[i].next]] in (self.opc.PJIT, self.opc.PJIF):
+                if self.code[self.prev[self.lines[i].next]] in (
+                    self.opc.PJIT,
+                    self.opc.PJIF,
+                ):
                     continue
             filtered.append(i)
         return filtered
@@ -473,16 +589,16 @@ class Scanner(object):
     def resetTokenClass(self):
         return self.setTokenClass(Token)
 
-    def restrict_to_parent(self, target, parent):
+    def restrict_to_parent(self, target: int, parent) -> int:
         """Restrict target to parent structure boundaries."""
-        if not (parent['start'] < target < parent['end']):
-            target = parent['end']
+        if not (parent["start"] < target < parent["end"]):
+            target = parent["end"]
         return target
 
-    def setTokenClass(self, tokenClass):
-        # assert isinstance(tokenClass, types.ClassType)
+    def setTokenClass(self, tokenClass) -> Token:
         self.Token = tokenClass
         return self.Token
+
 
 def parse_fn_counts(argc):
     return ((argc & 0xFF), (argc >> 8) & 0xFF, (argc >> 16) & 0x7FFF)
@@ -496,42 +612,58 @@ def get_scanner(version, is_pypy=False, show_asm=None):
             raise RuntimeError("Unknown Python version in xdis %s" % version)
         canonic_version = canonic_python_version[version]
         if canonic_version not in CANONIC2VERSION:
-            raise RuntimeError("Unsupported Python version %s (canonic %s)"
-                               % (version, canonic_version))
+            raise RuntimeError(
+                "Unsupported Python version %s (canonic %s)"
+                % (version, canonic_version)
+            )
         version = CANONIC2VERSION[canonic_version]
 
     # Pick up appropriate scanner
-    if version in PYTHON_VERSIONS:
-        v_str = "%s" % (int(version * 10))
+    if version[:2] in PYTHON_VERSIONS:
+        v_str = version_tuple_to_str(version, start=0, end=2, delimiter="")
         try:
             import importlib
+
             if is_pypy:
                 scan = importlib.import_module("uncompyle6.scanners.pypy%s" % v_str)
             else:
                 scan = importlib.import_module("uncompyle6.scanners.scanner%s" % v_str)
-            if False: print(scan)  # Avoid unused scan
+            if False:
+                print(scan)  # Avoid unused scan
         except ImportError:
             if is_pypy:
-                exec("import uncompyle6.scanners.pypy%s as scan" % v_str,
-                     locals(), globals())
+                exec(
+                    "import uncompyle6.scanners.pypy%s as scan" % v_str,
+                    locals(),
+                    globals(),
+                )
             else:
-                exec("import uncompyle6.scanners.scanner%s as scan" % v_str,
-                      locals(), globals())
+                exec(
+                    "import uncompyle6.scanners.scanner%s as scan" % v_str,
+                    locals(),
+                    globals(),
+                )
         if is_pypy:
-            scanner = eval("scan.ScannerPyPy%s(show_asm=show_asm)" % v_str,
-                           locals(), globals())
+            scanner = eval(
+                "scan.ScannerPyPy%s(show_asm=show_asm)" % v_str, locals(), globals()
+            )
         else:
-            scanner = eval("scan.Scanner%s(show_asm=show_asm)" % v_str,
-                           locals(), globals())
+            scanner = eval(
+                "scan.Scanner%s(show_asm=show_asm)" % v_str, locals(), globals()
+            )
     else:
-        raise RuntimeError("Unsupported Python version %s" % version)
+        raise RuntimeError(
+            f"Unsupported Python version, {version_tuple_to_str(version)}, for decompilation"
+        )
     return scanner
 
 
 if __name__ == "__main__":
-    import inspect, uncompyle6
+    import inspect
+
     co = inspect.currentframe().f_code
     # scanner = get_scanner('2.7.13', True)
     # scanner = get_scanner(sys.version[:5], False)
-    scanner = get_scanner(uncompyle6.PYTHON_VERSION, IS_PYPY, True)
-    tokens, customize = scanner.ingest(co, {}, show_asm='after')
+    from xdis.version_info import PYTHON_VERSION_TRIPLE
+    scanner = get_scanner(PYTHON_VERSION_TRIPLE, IS_PYPY, True)
+    tokens, customize = scanner.ingest(co, {}, show_asm="after")

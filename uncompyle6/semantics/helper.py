@@ -1,20 +1,47 @@
+#  Copyright (c) 2022 Rocky Bernstein
+#
+#  This program is free software: you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation, either version 3 of the License, or
+#  (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import sys
 
+from xdis import iscode
 from uncompyle6.parsers.treenode import SyntaxTree
 
-from uncompyle6 import PYTHON3
-if PYTHON3:
-    minint = -sys.maxsize-1
-    maxint = sys.maxsize
-else:
-    minint = -sys.maxint-1
-    maxint = sys.maxint
+minint = -sys.maxsize-1
+maxint = sys.maxsize
 
 read_write_global_ops = frozenset(('STORE_GLOBAL', 'DELETE_GLOBAL', 'LOAD_GLOBAL'))
 read_global_ops       = frozenset(('STORE_GLOBAL', 'DELETE_GLOBAL'))
 
 # NOTE: we also need to check that the variable name is a free variable, not a cell variable.
 nonglobal_ops         = frozenset(('STORE_DEREF',  'DELETE_DEREF'))
+
+def escape_string(s, quotes=('"', "'", '"""', "'''")):
+    quote = None
+    for q in quotes:
+        if s.find(q) == -1:
+            quote = q
+            break
+        pass
+    if quote is None:
+        quote = '"""'
+        s = s.replace('"""', '\\"""')
+
+    for (orig, replace) in (('\t', '\\t'),
+                            ('\n', '\\n'),
+                            ('\r', '\\r')):
+        s = s.replace(orig, replace)
+    return "%s%s%s" % (quote, s, quote)
 
 # FIXME: this and find_globals could be paramaterized with one of the
 # above global ops
@@ -27,6 +54,30 @@ def find_all_globals(node, globs):
             globs.add(n.pattr)
     return globs
 
+# def find_globals(node, globs, global_ops=mkfunc_globals):
+#     """Find globals in this statement."""
+#     for n in node:
+#         # print("XXX", n.kind, global_ops)
+#         if isinstance(n, SyntaxTree):
+#             # FIXME: do I need a caser for n.kind="mkfunc"?
+#             if n.kind in ("if_exp_lambda", "return_expr_lambda"):
+#                 globs = find_globals(n, globs, lambda_body_globals)
+#             else:
+#                 globs = find_globals(n, globs, global_ops)
+#         elif n.kind in frozenset(global_ops):
+#             globs.add(n.pattr)
+#     return globs
+
+def find_code_node(node, start):
+    for i in range(-start, len(node) + 1):
+        if node[-i].kind == "LOAD_CODE":
+            code_node = node[-i]
+            assert iscode(code_node.attr)
+            return code_node
+        pass
+    assert False, "did not find code node starting at %d in %s" % (start, node)
+
+
 def find_globals_and_nonlocals(node, globs, nonlocals, code, version):
     """search a node of parse tree to find variable names that need a
     either 'global' or 'nonlocal' statements added."""
@@ -36,27 +87,13 @@ def find_globals_and_nonlocals(node, globs, nonlocals, code, version):
                                                           code, version)
         elif n.kind in read_global_ops:
             globs.add(n.pattr)
-        elif (version >= 3.0
+        elif (version >= (3, 0)
               and n.kind in nonglobal_ops
               and n.pattr in code.co_freevars
               and n.pattr != code.co_name
               and code.co_name != '<lambda>'):
             nonlocals.add(n.pattr)
     return globs, nonlocals
-
-# def find_globals(node, globs, global_ops=mkfunc_globals):
-#     """Find globals in this statement."""
-#     for n in node:
-#         # print("XXX", n.kind, global_ops)
-#         if isinstance(n, SyntaxTree):
-#             # FIXME: do I need a caser for n.kind="mkfunc"?
-#             if n.kind in ("if_expr_lambda", "return_lambda"):
-#                 globs = find_globals(n, globs, mklambda_globals)
-#             else:
-#                 globs = find_globals(n, globs, global_ops)
-#         elif n.kind in frozenset(global_ops):
-#             globs.add(n.pattr)
-#     return globs
 
 def find_none(node):
     for n in node:
@@ -68,34 +105,50 @@ def find_none(node):
             return True
     return False
 
-def escape_string(str, quotes=('"', "'", '"""', "'''")):
-    quote = None
-    for q in quotes:
-        if str.find(q) == -1:
-            quote = q
-            break
+def flatten_list(node):
+    """
+    List of expressions may be nested in groups of 32 and 1024
+    items. flatten that out and return the list
+    """
+    flat_elems = []
+    for elem in node:
+        if elem == 'expr1024':
+            for subelem in elem:
+                assert subelem == 'expr32'
+                for subsubelem in subelem:
+                    flat_elems.append(subsubelem)
+        elif elem == 'expr32':
+            for subelem in elem:
+                assert subelem == 'expr'
+                flat_elems.append(subelem)
+        else:
+            flat_elems.append(elem)
+            pass
         pass
-    if quote is None:
-        quote = '"""'
-        str = str.replace('"""', '\\"""')
+    return flat_elems
 
-    for (orig, replace) in (('\t', '\\t'),
-                            ('\n', '\\n'),
-                            ('\r', '\\r')):
-        str = str.replace(orig, replace)
-    return "%s%s%s" % (quote, str, quote)
+# Note: this is only used in Python > 3.0
+# Should move this somewhere more specific?
+def gen_function_parens_adjust(mapping_key, node):
+    """If we can avoid the outer parenthesis
+    of a generator function, set the node key to
+    'call_generator' and the caller will do the default
+    action on that. Otherwise we do nothing.
+    """
+    if mapping_key.kind != 'CALL_FUNCTION_1':
+        return
 
-def strip_quotes(str):
-    if str.startswith("'''") and str.endswith("'''"):
-        str = str[3:-3]
-    elif str.startswith('"""') and str.endswith('"""'):
-        str = str[3:-3]
-    elif str.startswith("'") and str.endswith("'"):
-        str = str[1:-1]
-    elif str.startswith('"') and str.endswith('"'):
-        str = str[1:-1]
+    args_node = node[-2]
+    if args_node == 'pos_arg':
+        assert args_node[0] == 'expr'
+        n = args_node[0][0]
+        if n == 'generator_exp':
+            node.kind = 'call_generator'
         pass
-    return str
+    return
+
+def is_lambda_mode(compile_mode: str) -> bool:
+    return compile_mode in ("dictcomp", "genexpr", "lambda", "listcomp", "setcomp")
 
 
 def print_docstring(self, indent, docstring):
@@ -105,18 +158,7 @@ def print_docstring(self, indent, docstring):
             quote = "'''"
 
     self.write(indent)
-    if not PYTHON3 and not isinstance(docstring, str):
-        # Must be unicode in Python2
-        self.write('u')
-        docstring = repr(docstring.expandtabs())[2:-1]
-    elif PYTHON3 and 2.4 <= self.version <= 2.7:
-        try:
-            repr(docstring.expandtabs())[1:-1].encode("ascii")
-        except UnicodeEncodeError:
-            self.write('u')
-        docstring = repr(docstring.expandtabs())[1:-1]
-    else:
-        docstring = repr(docstring.expandtabs())[1:-1]
+    docstring = repr(docstring.expandtabs())[1:-1]
 
     for (orig, replace) in (('\\\\', '\t'),
                             ('\\r\\n', '\n'),
@@ -173,55 +215,22 @@ def print_docstring(self, indent, docstring):
         self.println(lines[-1], quote)
     return True
 
-
-def flatten_list(node):
-    """
-    List of expressions may be nested in groups of 32 and 1024
-    items. flatten that out and return the list
-    """
-    flat_elems = []
-    for elem in node:
-        if elem == 'expr1024':
-            for subelem in elem:
-                assert subelem == 'expr32'
-                for subsubelem in subelem:
-                    flat_elems.append(subsubelem)
-        elif elem == 'expr32':
-            for subelem in elem:
-                assert subelem == 'expr'
-                flat_elems.append(subelem)
-        else:
-            flat_elems.append(elem)
-            pass
+def strip_quotes(s):
+    if s.startswith("'''") and s.endswith("'''"):
+        s = s[3:-3]
+    elif s.startswith('"""') and s.endswith('"""'):
+        s = s[3:-3]
+    elif s.startswith("'") and s.endswith("'"):
+        s = s[1:-1]
+    elif s.startswith('"') and s.endswith('"'):
+        s = s[1:-1]
         pass
-    return flat_elems
+    return s
 
-# Note: this is only used in Python > 3.0
-# Should move this somewhere more specific?
-def gen_function_parens_adjust(mapping_key, node):
-    """If we can avoid the outer parenthesis
-    of a generator function, set the node key to
-    'call_generator' and the caller will do the default
-    action on that. Otherwise we do nothing.
-    """
-    if mapping_key.kind != 'CALL_FUNCTION_1':
-        return
-
-    args_node = node[-2]
-    if args_node == 'pos_arg':
-        assert args_node[0] == 'expr'
-        n = args_node[0][0]
-        if n == 'generator_exp':
-            node.kind = 'call_generator'
-        pass
-    return
 
 
 # if __name__ == '__main__':
-#     if PYTHON3:
-#         from io import StringIO
-#     else:
-#         from StringIO import StringIO
+#     from io import StringIO
 #     class PrintFake():
 #         def __init__(self):
 #             self.pending_newlines = 0
